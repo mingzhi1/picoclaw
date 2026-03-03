@@ -1,0 +1,407 @@
+name: Release Bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.2.0)"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark as pre-release"
+        required: false
+        type: boolean
+        default: false
+      draft:
+        description: "Create as draft"
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # 1. Create Git tag
+  # ──────────────────────────────────────────────────────────────────────────
+  create-tag:
+    name: Create Git Tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create and push tag
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$RELEASE_TAG" -m "Release $RELEASE_TAG"
+          git push origin "$RELEASE_TAG"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 2. Build picoclaw (CGO_ENABLED=0, pure Go, cross-compile on ubuntu)
+  # ──────────────────────────────────────────────────────────────────────────
+  build-picoclaw:
+    name: Build picoclaw (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: create-tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            suffix: ""
+          - goos: linux
+            goarch: arm64
+            suffix: ""
+          - goos: linux
+            goarch: arm
+            goarm: "7"
+            suffix: ""
+          - goos: linux
+            goarch: riscv64
+            suffix: ""
+          - goos: linux
+            goarch: loong64
+            suffix: ""
+          - goos: windows
+            goarch: amd64
+            suffix: ".exe"
+          - goos: darwin
+            goarch: amd64
+            suffix: ""
+          - goos: darwin
+            goarch: arm64
+            suffix: ""
+
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Generate embedded assets
+        run: go generate ./...
+
+      - name: Build picoclaw
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: "0"
+          VERSION: ${{ inputs.tag }}
+        run: |
+          mkdir -p dist
+          OUTPUT="dist/picoclaw${{ matrix.suffix }}"
+          go build \
+            -tags stdjson \
+            -ldflags "-s -w \
+              -X github.com/sipeed/picoclaw/cmd/picoclaw/internal.version=${VERSION} \
+              -X github.com/sipeed/picoclaw/cmd/picoclaw/internal.gitCommit=$(git rev-parse --short HEAD) \
+              -X github.com/sipeed/picoclaw/cmd/picoclaw/internal.buildTime=$(date -u +%FT%TZ)" \
+            -o "${OUTPUT}" \
+            ./cmd/picoclaw
+
+      - name: Upload picoclaw artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: picoclaw-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm && format('-armv{0}', matrix.goarm) || '' }}
+          path: dist/picoclaw${{ matrix.suffix }}
+          retention-days: 1
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 3a. Build Launcher — Windows (Wails requires WebView2)
+  # Note: continue-on-error=true so packaging still runs if wails build fails
+  # ──────────────────────────────────────────────────────────────────────────
+  build-launcher-windows:
+    name: Build launcher (windows/amd64)
+    needs: create-tag
+    runs-on: windows-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build launcher
+        working-directory: cmd/picoclaw-launcher
+        run: |
+          go tool wails build -tags stdjson -ldflags "-s -w" -o picoclaw-launcher.exe
+
+      - name: Upload launcher artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-windows-amd64
+          path: cmd/picoclaw-launcher/build/bin/picoclaw-launcher.exe
+          retention-days: 1
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 3b. Build Launcher — Linux/amd64 (Wails requires GTK/WebKit)
+  # ──────────────────────────────────────────────────────────────────────────
+  build-launcher-linux:
+    name: Build launcher (linux/amd64)
+    needs: create-tag
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+
+      - name: Install WebKit/GTK dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev \
+            libwebkit2gtk-4.0-dev \
+            pkg-config \
+            build-essential
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build launcher
+        working-directory: cmd/picoclaw-launcher
+        run: |
+          go tool wails build -tags stdjson -ldflags "-s -w" -o picoclaw-launcher
+
+      - name: Upload launcher artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-linux-amd64
+          path: cmd/picoclaw-launcher/build/bin/picoclaw-launcher
+          retention-days: 1
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 3c. Build Launcher — macOS (universal binary: amd64 + arm64)
+  # ──────────────────────────────────────────────────────────────────────────
+  build-launcher-macos:
+    name: Build launcher (darwin/universal)
+    needs: create-tag
+    runs-on: macos-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build launcher (universal)
+        working-directory: cmd/picoclaw-launcher
+        run: |
+          go tool wails build -tags stdjson -ldflags "-s -w" -platform darwin/universal -o picoclaw-launcher
+
+      - name: Upload launcher artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-darwin-universal
+          path: cmd/picoclaw-launcher/build/bin/picoclaw-launcher
+          retention-days: 1
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 4. Package: assemble zip bundles per platform and create GitHub Release
+  #    Runs even if launcher builds fail (if: ${{ !cancelled() }})
+  #    Launcher is included only if its artifact was successfully uploaded
+  # ──────────────────────────────────────────────────────────────────────────
+  package-and-release:
+    name: Package & Create Release
+    needs:
+      - build-picoclaw
+      - build-launcher-windows
+      - build-launcher-linux
+      - build-launcher-macos
+    # Run even if launcher jobs fail; only skip if workflow is cancelled
+    if: ${{ !cancelled() && needs.build-picoclaw.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+
+      # ── Download picoclaw artifacts (always present) ──
+      - name: Download picoclaw artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: picoclaw-*
+          path: artifacts
+          merge-multiple: false
+
+      # ── Download launcher artifacts (may be missing if build failed) ──
+      - name: Download launcher-windows artifact
+        uses: actions/download-artifact@v4
+        if: ${{ needs.build-launcher-windows.result == 'success' }}
+        with:
+          name: launcher-windows-amd64
+          path: artifacts/launcher-windows-amd64
+        continue-on-error: true
+
+      - name: Download launcher-linux artifact
+        uses: actions/download-artifact@v4
+        if: ${{ needs.build-launcher-linux.result == 'success' }}
+        with:
+          name: launcher-linux-amd64
+          path: artifacts/launcher-linux-amd64
+        continue-on-error: true
+
+      - name: Download launcher-macos artifact
+        uses: actions/download-artifact@v4
+        if: ${{ needs.build-launcher-macos.result == 'success' }}
+        with:
+          name: launcher-darwin-universal
+          path: artifacts/launcher-darwin-universal
+        continue-on-error: true
+
+      - name: List downloaded artifacts
+        run: find artifacts -type f | sort
+
+      # ── Assemble zip bundles ──
+      - name: Assemble zip bundles
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p release staging
+
+          # ── helper: bundle picoclaw + optional launcher into a zip ──
+          make_zip() {
+            local NAME="$1"         # bundle name, e.g. picoclaw_v0.1.0_windows_amd64
+            local PICOCLAW="$2"     # source path of picoclaw binary
+            local LAUNCHER="${3:-}" # source path of launcher binary (empty = omit)
+            local EXT="${4:-}"      # ".exe" or ""
+
+            local DIR="staging/${NAME}"
+            mkdir -p "${DIR}"
+
+            chmod +x "${PICOCLAW}" 2>/dev/null || true
+            cp "${PICOCLAW}" "${DIR}/picoclaw${EXT}"
+
+            if [ -n "${LAUNCHER}" ] && [ -f "${LAUNCHER}" ]; then
+              chmod +x "${LAUNCHER}" 2>/dev/null || true
+              cp "${LAUNCHER}" "${DIR}/picoclaw-launcher${EXT}"
+              echo "PicoClaw Bundle (picoclaw + picoclaw-launcher)" > "${DIR}/README.txt"
+            else
+              echo "PicoClaw CLI only (picoclaw-launcher not available for this platform)" > "${DIR}/README.txt"
+            fi
+
+            (cd staging && zip -r "../release/${NAME}.zip" "${NAME}/")
+            echo "  created: release/${NAME}.zip"
+          }
+
+          WINLAUNCHER=""
+          LINLAUNCHER=""
+          MACLAUNCHER=""
+
+          [ -f "artifacts/launcher-windows-amd64/picoclaw-launcher.exe" ] \
+            && WINLAUNCHER="artifacts/launcher-windows-amd64/picoclaw-launcher.exe"
+          [ -f "artifacts/launcher-linux-amd64/picoclaw-launcher" ] \
+            && LINLAUNCHER="artifacts/launcher-linux-amd64/picoclaw-launcher"
+          [ -f "artifacts/launcher-darwin-universal/picoclaw-launcher" ] \
+            && MACLAUNCHER="artifacts/launcher-darwin-universal/picoclaw-launcher"
+
+          # Windows amd64
+          make_zip \
+            "picoclaw_${TAG}_windows_amd64" \
+            "artifacts/picoclaw-windows-amd64/picoclaw.exe" \
+            "${WINLAUNCHER}" \
+            ".exe"
+
+          # Linux amd64
+          make_zip \
+            "picoclaw_${TAG}_linux_amd64" \
+            "artifacts/picoclaw-linux-amd64/picoclaw" \
+            "${LINLAUNCHER}" \
+            ""
+
+          # macOS amd64 (with universal launcher if available)
+          make_zip \
+            "picoclaw_${TAG}_darwin_amd64" \
+            "artifacts/picoclaw-darwin-amd64/picoclaw" \
+            "${MACLAUNCHER}" \
+            ""
+
+          # macOS arm64 (with universal launcher if available)
+          make_zip \
+            "picoclaw_${TAG}_darwin_arm64" \
+            "artifacts/picoclaw-darwin-arm64/picoclaw" \
+            "${MACLAUNCHER}" \
+            ""
+
+          # Linux arm64 (picoclaw only)
+          make_zip \
+            "picoclaw_${TAG}_linux_arm64" \
+            "artifacts/picoclaw-linux-arm64/picoclaw" \
+            "" ""
+
+          # Linux armv7 (picoclaw only)
+          make_zip \
+            "picoclaw_${TAG}_linux_armv7" \
+            "artifacts/picoclaw-linux-arm-armv7/picoclaw" \
+            "" ""
+
+          # Linux riscv64 (picoclaw only)
+          make_zip \
+            "picoclaw_${TAG}_linux_riscv64" \
+            "artifacts/picoclaw-linux-riscv64/picoclaw" \
+            "" ""
+
+          # Linux loong64 (picoclaw only)
+          make_zip \
+            "picoclaw_${TAG}_linux_loong64" \
+            "artifacts/picoclaw-linux-loong64/picoclaw" \
+            "" ""
+
+          echo ""
+          echo "=== Final release assets ==="
+          ls -lh release/
+
+      # ── Create GitHub Release ──
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: "PicoClaw ${{ inputs.tag }}"
+          draft: ${{ inputs.draft }}
+          prerelease: ${{ inputs.prerelease }}
+          generate_release_notes: true
+          files: release/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
