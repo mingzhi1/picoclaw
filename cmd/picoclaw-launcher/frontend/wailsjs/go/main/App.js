@@ -18,6 +18,10 @@ export function GetSetupStatus() {
   return window['go']['main']['App']['GetSetupStatus']();
 }
 
+export function RestartGateway() {
+  return window['go']['main']['App']['RestartGateway']();
+}
+
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
 }

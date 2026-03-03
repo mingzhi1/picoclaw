@@ -4,6 +4,8 @@ vars:
   BINARY_NAME: picoclaw
   CMD_DIR: cmd/picoclaw
   BUILD_DIR: build
+  LAUNCHER_DIR: cmd/picoclaw-launcher
+  LAUNCHER_BUILD_DIR: cmd/picoclaw-launcher/build/bin
   INTERNAL: github.com/sipeed/picoclaw/cmd/picoclaw/internal
   VERSION:
     sh: git describe --tags --always --dirty 2>{{if eq OS "windows"}}nul{{else}}/dev/null{{end}} || echo dev
@@ -16,6 +18,12 @@ tasks:
     desc: Build the project
     cmds:
       - task: build
+
+  all:
+    desc: Build picoclaw + launcher (both binaries)
+    deps:
+      - build
+      - build-launcher
 
   build:
     desc: Build picoclaw binary (dev, skip generate)
@@ -31,6 +39,17 @@ tasks:
     cmds:
       - task: generate
       - task: build
+
+  build-launcher:
+    desc: Build picoclaw-launcher (Wails desktop GUI)
+    dir: '{{.LAUNCHER_DIR}}'
+    cmds:
+      - go tool wails build -tags stdjson -ldflags "-s -w" -o picoclaw-launcher{{exeExt}}
+    sources:
+      - "**/*.go"
+      - frontend/**
+    generates:
+      - '../../{{.LAUNCHER_BUILD_DIR}}/picoclaw-launcher{{exeExt}}'
 
   generate:
     desc: Run go generate

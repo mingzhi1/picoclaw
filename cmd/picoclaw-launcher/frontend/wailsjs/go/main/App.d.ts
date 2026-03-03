@@ -10,6 +10,8 @@ export function GetLogs(arg1:number):Promise<Record<string, any>>;
 
 export function GetSetupStatus():Promise<main.SetupStatusResult>;
 
+export function RestartGateway():Promise<string>;
+
 export function SaveConfig(arg1:string):Promise<void>;
 
 export function SaveSetup(arg1:main.TestLLMRequest):Promise<main.SaveSetupResult>;
