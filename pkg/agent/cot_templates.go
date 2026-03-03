@@ -196,26 +196,32 @@ func (r *CotRegistry) ListForPrompt() string {
 	return sb.String()
 }
 
-// ListExamplesForPrompt returns full template examples for the pre-LLM to
-// use as inspiration when generating custom CoT prompts.
-// Shows 3-4 diverse examples with their full prompt content.
+// ListExamplesForPrompt returns compact CoT examples for the pre-LLM.
+// Uses abbreviated format to minimise token usage while preserving the
+// pattern the pre-LLM needs: intent → brief numbered steps.
 func (r *CotRegistry) ListExamplesForPrompt() string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	// Select a diverse set of examples (not all — keep prompt concise).
+	// Compact examples — enough to show the format, not the full templates.
+	// The pre-LLM should GENERATE its own strategy, not copy these.
+	var sb strings.Builder
 	exampleIDs := []string{"analytical", "code", "debug", "task"}
 
-	var sb strings.Builder
 	for _, id := range exampleIDs {
 		t, ok := r.templates[id]
 		if !ok || t.Prompt == "" {
 			continue
 		}
-		fmt.Fprintf(&sb, "### Example: %s (%s)\n%s\n\n", t.Name, t.Description, t.Prompt)
+		// Extract only the numbered steps as a compact list.
+		compact := compactCotSteps(t.Prompt)
+		if compact == "" {
+			continue
+		}
+		fmt.Fprintf(&sb, "**%s** (%s): %s\n", t.ID, t.Description, compact)
 	}
 
-	// Append any user-defined templates as additional examples.
+	// Append user-defined templates (also compacted).
 	for id, t := range r.templates {
 		isBuiltin := false
 		for _, bt := range builtinCotTemplates {
@@ -225,11 +231,45 @@ func (r *CotRegistry) ListExamplesForPrompt() string {
 			}
 		}
 		if !isBuiltin && t.Prompt != "" {
-			fmt.Fprintf(&sb, "### Example: %s (%s)\n%s\n\n", t.Name, t.Description, t.Prompt)
+			compact := compactCotSteps(t.Prompt)
+			if compact != "" {
+				fmt.Fprintf(&sb, "**%s** (%s): %s\n", t.ID, t.Description, compact)
+			}
 		}
 	}
 
 	return sb.String()
+}
+
+// compactCotSteps extracts numbered steps from a CoT template
+// and joins them into a single comma-separated line.
+// Input: "## Thinking Strategy: ...\n\n1. **Clarify** — ...\n2. **Decompose** — ..."
+// Output: "1.Clarify 2.Decompose 3.Analyse 4.Synthesise 5.Verify"
+func compactCotSteps(prompt string) string {
+	var steps []string
+	for _, line := range strings.Split(prompt, "\n") {
+		line = strings.TrimSpace(line)
+		// Match lines starting with a digit and a dot: "1. **Clarify** — Restate..."
+		if len(line) == 0 || line[0] < '1' || line[0] > '9' {
+			continue
+		}
+		// Extract the step number and keyword: "1. **Clarify** — ..." → "1.Clarify"
+		// Find the bold keyword if present.
+		step := line
+		if idx := strings.Index(line, "**"); idx >= 0 {
+			end := strings.Index(line[idx+2:], "**")
+			if end >= 0 {
+				keyword := line[idx+2 : idx+2+end]
+				numDot := line[:strings.Index(line, ".")+1]
+				step = numDot + keyword
+			}
+		}
+		steps = append(steps, step)
+	}
+	if len(steps) == 0 {
+		return ""
+	}
+	return strings.Join(steps, " → ")
 }
 
 // loadUserTemplates scans workspace/cot_templates/ for .md files.

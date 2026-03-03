@@ -95,7 +95,21 @@ func NewAgentLoop(
 		} else {
 			mem := defaultAgent.ContextBuilder.GetMemory()
 			digestModel := cfg.Agents.Defaults.GetDigestModel()
-			digestWorker = NewMemoryDigestWorker(ts, mem, provider, digestModel)
+			digestProvider := provider
+			digestModelID := digestModel
+
+			// If digest model differs from primary, resolve its own provider.
+			primaryModel := cfg.Agents.Defaults.GetPrimaryModel()
+			if digestModel != primaryModel {
+				if mc, err := cfg.GetModelConfig(digestModel); err == nil && mc != nil {
+					if dp, mid, err := providers.CreateProviderFromConfig(mc); err == nil {
+						digestProvider = dp
+						digestModelID = mid
+					}
+				}
+			}
+
+			digestWorker = NewMemoryDigestWorker(ts, mem, digestProvider, digestModelID)
 		}
 	}
 
@@ -776,7 +790,9 @@ func (al *AgentLoop) runAgentLoop(
 		}
 	}
 
-	// 3. Save user message to session (kept for /memory, /show debug commands).
+	// 3. Save user message to session.
+	// In Instant Memory mode, session is only kept for debug commands (/show);
+	// no summarization needed since TurnStore handles context selection.
 	agent.Sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
 
 	// 4. Run LLM iteration loop
@@ -821,8 +837,10 @@ func (al *AgentLoop) runAgentLoop(
 		}
 	}
 
-	// 7. Optional: summarization
-	if opts.EnableSummary {
+	// 7. Optional: summarization — ONLY for legacy path.
+	// Instant Memory mode uses TurnStore for context selection, so session
+	// summarization is unnecessary and would waste LLM calls.
+	if opts.EnableSummary && !useInstantMemory {
 		al.maybeSummarize(agent, opts.SessionKey, opts.Channel, opts.ChatID)
 	}
 

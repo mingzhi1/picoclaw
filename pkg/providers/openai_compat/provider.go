@@ -227,10 +227,7 @@ func parseResponse(body []byte) (*LLMResponse, error) {
 	}
 
 	if len(apiResponse.Choices) == 0 {
-		return &LLMResponse{
-			Content:      "",
-			FinishReason: "stop",
-		}, nil
+		return nil, fmt.Errorf("API returned empty choices array (model produced no output)")
 	}
 
 	choice := apiResponse.Choices[0]

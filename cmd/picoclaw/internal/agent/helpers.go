@@ -33,7 +33,7 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 
 	// Debug flag overrides config.
 	if debug {
-		logger.SetLevel(logger.INFO)
+		logger.SetLevel(logger.DEBUG)
 		fmt.Println("Debug mode enabled")
 	}
 

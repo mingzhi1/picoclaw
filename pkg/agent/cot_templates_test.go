@@ -107,19 +107,22 @@ func TestCotRegistry_ListExamplesForPrompt(t *testing.T) {
 
 	examples := r.ListExamplesForPrompt()
 
-	// Should contain full example content for key templates.
-	if !strings.Contains(examples, "Code Analysis") {
-		t.Error("ListExamplesForPrompt missing 'Code Analysis' example")
+	// Should contain template IDs and descriptions in compact format.
+	if !strings.Contains(examples, "**code**") {
+		t.Error("ListExamplesForPrompt missing 'code' example")
 	}
-	if !strings.Contains(examples, "Analytical Reasoning") {
-		t.Error("ListExamplesForPrompt missing 'Analytical Reasoning' example")
+	if !strings.Contains(examples, "**analytical**") {
+		t.Error("ListExamplesForPrompt missing 'analytical' example")
 	}
-	if !strings.Contains(examples, "Debugging") {
-		t.Error("ListExamplesForPrompt missing 'Debugging' example")
+	if !strings.Contains(examples, "**debug**") {
+		t.Error("ListExamplesForPrompt missing 'debug' example")
 	}
-	// Should contain actual steps, not just names.
+	// Should contain step keywords connected with arrow separators.
 	if !strings.Contains(examples, "Requirements") {
-		t.Error("ListExamplesForPrompt should include actual step content")
+		t.Error("ListExamplesForPrompt should include step keywords")
+	}
+	if !strings.Contains(examples, "→") {
+		t.Error("ListExamplesForPrompt should use → to chain steps")
 	}
 }
 

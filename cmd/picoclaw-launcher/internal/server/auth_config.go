@@ -18,7 +18,6 @@ func updateConfigAfterLogin(configPath, provider string, cred *auth.AuthCredenti
 
 	switch provider {
 	case "openai":
-		cfg.Providers.OpenAI.AuthMethod = "oauth"
 		found := false
 		for i := range cfg.ModelList {
 			if isOpenAIModel(cfg.ModelList[i].Model) {
@@ -34,10 +33,9 @@ func updateConfigAfterLogin(configPath, provider string, cred *auth.AuthCredenti
 				AuthMethod: "oauth",
 			})
 		}
-		cfg.Agents.Defaults.ModelName = "gpt-5.2"
+		cfg.Agents.Defaults.PrimaryModel = "gpt-5.2"
 
 	case "anthropic":
-		cfg.Providers.Anthropic.AuthMethod = "token"
 		found := false
 		for i := range cfg.ModelList {
 			if isAnthropicModel(cfg.ModelList[i].Model) {
@@ -53,10 +51,9 @@ func updateConfigAfterLogin(configPath, provider string, cred *auth.AuthCredenti
 				AuthMethod: "token",
 			})
 		}
-		cfg.Agents.Defaults.ModelName = "claude-sonnet-4.6"
+		cfg.Agents.Defaults.PrimaryModel = "claude-sonnet-4.6"
 
 	case "google-antigravity":
-		cfg.Providers.Antigravity.AuthMethod = "oauth"
 		found := false
 		for i := range cfg.ModelList {
 			if isAntigravityModel(cfg.ModelList[i].Model) {
@@ -72,7 +69,7 @@ func updateConfigAfterLogin(configPath, provider string, cred *auth.AuthCredenti
 				AuthMethod: "oauth",
 			})
 		}
-		cfg.Agents.Defaults.ModelName = "gemini-flash"
+		cfg.Agents.Defaults.PrimaryModel = "gemini-flash"
 	}
 
 	if err := config.SaveConfig(configPath, cfg); err != nil {

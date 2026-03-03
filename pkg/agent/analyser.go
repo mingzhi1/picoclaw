@@ -209,28 +209,47 @@ func (p *Analyser) Analyse(ctx context.Context, userMessage string, memory *Memo
 }
 
 // parseResponse extracts intent and tags from the LLM's JSON response.
-// Handles common LLM quirks like markdown fences around JSON.
+// Uses a multi-layer extraction strategy to handle common LLM quirks:
+//  1. Strip markdown code fences (```, ```json, etc.)
+//  2. Try direct JSON unmarshal
+//  3. If that fails, extract the first {...} substring and try again
 func (p *Analyser) parseResponse(content string) AnalyseResult {
 	content = strings.TrimSpace(content)
 
-	// Strip markdown code fences if present.
-	if strings.HasPrefix(content, "```") {
-		lines := strings.Split(content, "\n")
-		// Remove first and last lines (fences).
-		if len(lines) >= 3 {
-			content = strings.Join(lines[1:len(lines)-1], "\n")
-		}
+	// Guard: if the LLM returned nothing, skip JSON parsing entirely.
+	if content == "" {
+		logger.DebugCF("analyser", "Pre-LLM returned empty content, skipping parse", nil)
+		return AnalyseResult{}
 	}
-	content = strings.TrimSpace(content)
 
+	// Layer 1: Strip markdown code fences if present (```json, ```JSON, ```, etc.)
+	content = stripMarkdownFences(content)
+
+	// Layer 2: Try direct JSON unmarshal.
 	var result AnalyseResult
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
-		logger.WarnCF("analyser", "Failed to parse pre-LLM response as JSON",
-			map[string]any{
-				"error":   err.Error(),
-				"content": content,
-			})
-		return AnalyseResult{}
+		// Layer 3: Try to extract the first {...} JSON object from the text.
+		// Handles cases like: "Here is the result:\n{...}" or "{...}\nLet me explain..."
+		if extracted := extractJSONObject(content); extracted != "" {
+			if err2 := json.Unmarshal([]byte(extracted), &result); err2 != nil {
+				logger.WarnCF("analyser", "Failed to parse pre-LLM response as JSON (both direct and extracted)",
+					map[string]any{
+						"error":     err2.Error(),
+						"content":   content,
+						"extracted": extracted,
+					})
+				return AnalyseResult{}
+			}
+			// Extraction succeeded — log at debug level.
+			logger.DebugCF("analyser", "Pre-LLM JSON extracted from surrounding text", nil)
+		} else {
+			logger.WarnCF("analyser", "Failed to parse pre-LLM response as JSON",
+				map[string]any{
+					"error":   err.Error(),
+					"content": content,
+				})
+			return AnalyseResult{}
+		}
 	}
 
 	// Sanitise: lowercase tags, limit to 5.
@@ -247,6 +266,68 @@ func (p *Analyser) parseResponse(content string) AnalyseResult {
 	result.Tags = cleaned
 
 	return result
+}
+
+// stripMarkdownFences removes markdown code fences from LLM output.
+// Handles: ```json\n...\n```, ```JSON\n...\n```, ```\n...\n```
+func stripMarkdownFences(s string) string {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "```") {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) < 3 {
+		return s
+	}
+	// Check if last line is a closing fence.
+	lastLine := strings.TrimSpace(lines[len(lines)-1])
+	if lastLine == "```" {
+		// Remove first line (opening fence) and last line (closing fence).
+		return strings.TrimSpace(strings.Join(lines[1:len(lines)-1], "\n"))
+	}
+	// Opening fence but no closing fence — just strip the first line.
+	return strings.TrimSpace(strings.Join(lines[1:], "\n"))
+}
+
+// extractJSONObject finds the first top-level {...} JSON object in the string.
+// Uses brace-counting to handle nested objects correctly.
+func extractJSONObject(s string) string {
+	start := strings.IndexByte(s, '{')
+	if start < 0 {
+		return ""
+	}
+
+	depth := 0
+	inString := false
+	escape := false
+
+	for i := start; i < len(s); i++ {
+		c := s[i]
+		if escape {
+			escape = false
+			continue
+		}
+		if c == '\\' && inString {
+			escape = true
+			continue
+		}
+		if c == '"' {
+			inString = !inString
+			continue
+		}
+		if inString {
+			continue
+		}
+		if c == '{' {
+			depth++
+		} else if c == '}' {
+			depth--
+			if depth == 0 {
+				return s[start : i+1]
+			}
+		}
+	}
+	return "" // Unmatched braces.
 }
 
 // formatMemoryEntries formats memory entries into a string for injection into context.

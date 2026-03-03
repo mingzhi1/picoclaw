@@ -68,25 +68,26 @@ type LoggingConfig struct {
 }
 
 // MarshalJSON implements custom JSON marshaling for Config
-// to omit providers section when empty and session when empty
+// to omit empty/default sections and keep the saved file minimal.
 func (c Config) MarshalJSON() ([]byte, error) {
 	type Alias Config
 	aux := &struct {
 		Providers *ProvidersConfig `json:"providers,omitempty"`
 		Session   *SessionConfig   `json:"session,omitempty"`
+		Channels  *ChannelsConfig  `json:"channels,omitempty"`
 		*Alias
 	}{
 		Alias: (*Alias)(&c),
 	}
 
-	// Only include providers if not empty
 	if !c.Providers.IsEmpty() {
 		aux.Providers = &c.Providers
 	}
-
-	// Only include session if not empty
 	if c.Session.DMScope != "" || len(c.Session.IdentityLinks) > 0 {
 		aux.Session = &c.Session
+	}
+	if c.Channels.HasEnabled() {
+		aux.Channels = &c.Channels
 	}
 
 	return json.Marshal(aux)
@@ -178,19 +179,22 @@ type AgentDefaults struct {
 	Workspace                 string   `json:"workspace"                       env:"PICOCLAW_AGENTS_DEFAULTS_WORKSPACE"`
 	RestrictToWorkspace       bool     `json:"restrict_to_workspace"           env:"PICOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE"`
 	AllowReadOutsideWorkspace bool     `json:"allow_read_outside_workspace"    env:"PICOCLAW_AGENTS_DEFAULTS_ALLOW_READ_OUTSIDE_WORKSPACE"`
-	Provider                  string   `json:"provider"                        env:"PICOCLAW_AGENTS_DEFAULTS_PROVIDER"`
-	ModelName                 string   `json:"model_name,omitempty"            env:"PICOCLAW_AGENTS_DEFAULTS_MODEL_NAME"`
-	Model                     string   `json:"model"                           env:"PICOCLAW_AGENTS_DEFAULTS_MODEL"` // Deprecated: use model_name instead
-	ModelFallbacks            []string `json:"model_fallbacks,omitempty"`
+	Provider                  string   `json:"provider,omitempty"               env:"PICOCLAW_AGENTS_DEFAULTS_PROVIDER"`
 
-	// Phase 1 — Analyser: lightweight model for intent/tag analysis + CoT strategy.
-	// Falls back to main model_name if empty. Use a cheap/fast model here.
-	AnalyserModel string `json:"analyser_model,omitempty"  env:"PICOCLAW_AGENTS_DEFAULTS_ANALYSER_MODEL"`
-	PreLLMModel   string `json:"pre_llm_model,omitempty"   env:"PICOCLAW_AGENTS_DEFAULTS_PRE_LLM_MODEL"` // Deprecated: use analyser_model
+	// Primary model (主 LLM) — the main model for the agent loop.
+	PrimaryModel   string   `json:"primary_model,omitempty"   env:"PICOCLAW_AGENTS_DEFAULTS_PRIMARY_MODEL"`
+	ModelFallbacks []string `json:"model_fallbacks,omitempty"`
 
-	// Phase 3 — Digest: lightweight model for memory extraction from turn records.
-	// Falls back to main model_name if empty. Use a cheap/fast model here.
-	DigestModel string `json:"digest_model,omitempty"    env:"PICOCLAW_AGENTS_DEFAULTS_DIGEST_MODEL"`
+	// Auxiliary model (副 LLM) — lightweight model for Analyser, Reflector, and Digest.
+	// Use a cheap/fast model here. Falls back to primary model if empty.
+	AuxiliaryModel string `json:"auxiliary_model,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_AUXILIARY_MODEL"`
+
+	// Deprecated: kept for backward compatibility — use primary_model / auxiliary_model instead.
+	ModelName     string `json:"model_name,omitempty"      env:"PICOCLAW_AGENTS_DEFAULTS_MODEL_NAME"`     // Deprecated: use primary_model
+	Model         string `json:"model,omitempty"           env:"PICOCLAW_AGENTS_DEFAULTS_MODEL"`           // Deprecated: use primary_model
+	AnalyserModel string `json:"analyser_model,omitempty"  env:"PICOCLAW_AGENTS_DEFAULTS_ANALYSER_MODEL"` // Deprecated: use auxiliary_model
+	PreLLMModel   string `json:"pre_llm_model,omitempty"   env:"PICOCLAW_AGENTS_DEFAULTS_PRE_LLM_MODEL"` // Deprecated: use auxiliary_model
+	DigestModel   string `json:"digest_model,omitempty"    env:"PICOCLAW_AGENTS_DEFAULTS_DIGEST_MODEL"`  // Deprecated: use auxiliary_model
 
 	ImageModel                string   `json:"image_model,omitempty"           env:"PICOCLAW_AGENTS_DEFAULTS_IMAGE_MODEL"`
 	ImageModelFallbacks       []string `json:"image_model_fallbacks,omitempty"`
@@ -199,34 +203,51 @@ type AgentDefaults struct {
 	MaxToolIterations         int      `json:"max_tool_iterations"             env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
 }
 
-// GetModelName returns the effective model name for the agent defaults.
-// It prefers the new "model_name" field but falls back to "model" for backward compatibility.
-func (d *AgentDefaults) GetModelName() string {
+// GetPrimaryModel returns the primary (main) model for the agent loop.
+// Priority: primary_model → model_name → model.
+func (d *AgentDefaults) GetPrimaryModel() string {
+	if d.PrimaryModel != "" {
+		return d.PrimaryModel
+	}
 	if d.ModelName != "" {
 		return d.ModelName
 	}
 	return d.Model
 }
 
-// GetAnalyserModel returns the model for Phase 1 (Analyser).
-// Priority: analyser_model → pre_llm_model (deprecated) → main model.
-func (d *AgentDefaults) GetAnalyserModel() string {
+// GetModelName is an alias for GetPrimaryModel (backward compatibility).
+func (d *AgentDefaults) GetModelName() string {
+	return d.GetPrimaryModel()
+}
+
+// GetAuxiliaryModel returns the auxiliary (lightweight) model.
+// Used by Analyser (Phase 1), Reflector, and Digest.
+// Priority: auxiliary_model → analyser_model → pre_llm_model → primary model.
+func (d *AgentDefaults) GetAuxiliaryModel() string {
+	if d.AuxiliaryModel != "" {
+		return d.AuxiliaryModel
+	}
 	if d.AnalyserModel != "" {
 		return d.AnalyserModel
 	}
 	if d.PreLLMModel != "" {
 		return d.PreLLMModel
 	}
-	return d.GetModelName()
+	return d.GetPrimaryModel()
+}
+
+// GetAnalyserModel is an alias for GetAuxiliaryModel (backward compatibility).
+func (d *AgentDefaults) GetAnalyserModel() string {
+	return d.GetAuxiliaryModel()
 }
 
 // GetDigestModel returns the model for Phase 3 (MemoryDigest).
-// Priority: digest_model → main model.
+// Priority: digest_model → auxiliary model.
 func (d *AgentDefaults) GetDigestModel() string {
 	if d.DigestModel != "" {
 		return d.DigestModel
 	}
-	return d.GetModelName()
+	return d.GetAuxiliaryModel()
 }
 
 type ChannelsConfig struct {
@@ -244,6 +265,64 @@ type ChannelsConfig struct {
 	WeComApp   WeComAppConfig   `json:"wecom_app"`
 	WeComAIBot WeComAIBotConfig `json:"wecom_aibot"`
 	Pico       PicoConfig       `json:"pico"`
+}
+
+// HasEnabled returns true if at least one channel is enabled.
+func (c ChannelsConfig) HasEnabled() bool {
+	return c.WhatsApp.Enabled || c.Telegram.Enabled || c.Feishu.Enabled ||
+		c.Discord.Enabled || c.MaixCam.Enabled || c.QQ.Enabled ||
+		c.DingTalk.Enabled || c.Slack.Enabled || c.LINE.Enabled ||
+		c.OneBot.Enabled || c.WeCom.Enabled || c.WeComApp.Enabled ||
+		c.WeComAIBot.Enabled || c.Pico.Enabled
+}
+
+// MarshalJSON only serializes enabled channels to keep config.json minimal.
+// Disabled channels use defaults from DefaultConfig() on load, so omitting them is safe.
+func (c ChannelsConfig) MarshalJSON() ([]byte, error) {
+	m := make(map[string]any)
+	if c.WhatsApp.Enabled {
+		m["whatsapp"] = c.WhatsApp
+	}
+	if c.Telegram.Enabled {
+		m["telegram"] = c.Telegram
+	}
+	if c.Feishu.Enabled {
+		m["feishu"] = c.Feishu
+	}
+	if c.Discord.Enabled {
+		m["discord"] = c.Discord
+	}
+	if c.MaixCam.Enabled {
+		m["maixcam"] = c.MaixCam
+	}
+	if c.QQ.Enabled {
+		m["qq"] = c.QQ
+	}
+	if c.DingTalk.Enabled {
+		m["dingtalk"] = c.DingTalk
+	}
+	if c.Slack.Enabled {
+		m["slack"] = c.Slack
+	}
+	if c.LINE.Enabled {
+		m["line"] = c.LINE
+	}
+	if c.OneBot.Enabled {
+		m["onebot"] = c.OneBot
+	}
+	if c.WeCom.Enabled {
+		m["wecom"] = c.WeCom
+	}
+	if c.WeComApp.Enabled {
+		m["wecom_app"] = c.WeComApp
+	}
+	if c.WeComAIBot.Enabled {
+		m["wecom_aibot"] = c.WeComAIBot
+	}
+	if c.Pico.Enabled {
+		m["pico"] = c.Pico
+	}
+	return json.Marshal(m)
 }
 
 // GroupTriggerConfig controls when the bot responds in group chats.
@@ -610,13 +689,13 @@ type ToolsConfig struct {
 
 type SkillsToolsConfig struct {
 	Registries            SkillsRegistriesConfig `json:"registries"`
-	MaxConcurrentSearches int                    `json:"max_concurrent_searches" env:"PICOCLAW_SKILLS_MAX_CONCURRENT_SEARCHES"`
-	SearchCache           SearchCacheConfig      `json:"search_cache"`
+	MaxConcurrentSearches int                    `json:"max_concurrent_searches,omitempty" env:"PICOCLAW_SKILLS_MAX_CONCURRENT_SEARCHES"`
+	SearchCache           SearchCacheConfig      `json:"search_cache,omitempty"`
 }
 
 type SearchCacheConfig struct {
-	MaxSize    int `json:"max_size"    env:"PICOCLAW_SKILLS_SEARCH_CACHE_MAX_SIZE"`
-	TTLSeconds int `json:"ttl_seconds" env:"PICOCLAW_SKILLS_SEARCH_CACHE_TTL_SECONDS"`
+	MaxSize    int `json:"max_size,omitempty"    env:"PICOCLAW_SKILLS_SEARCH_CACHE_MAX_SIZE"`
+	TTLSeconds int `json:"ttl_seconds,omitempty" env:"PICOCLAW_SKILLS_SEARCH_CACHE_TTL_SECONDS"`
 }
 
 type SkillsRegistriesConfig struct {
@@ -624,15 +703,15 @@ type SkillsRegistriesConfig struct {
 }
 
 type ClawHubRegistryConfig struct {
-	Enabled         bool   `json:"enabled"           env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_ENABLED"`
-	BaseURL         string `json:"base_url"          env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_BASE_URL"`
-	AuthToken       string `json:"auth_token"        env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_AUTH_TOKEN"`
-	SearchPath      string `json:"search_path"       env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_SEARCH_PATH"`
-	SkillsPath      string `json:"skills_path"       env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_SKILLS_PATH"`
-	DownloadPath    string `json:"download_path"     env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_DOWNLOAD_PATH"`
-	Timeout         int    `json:"timeout"           env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_TIMEOUT"`
-	MaxZipSize      int    `json:"max_zip_size"      env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_MAX_ZIP_SIZE"`
-	MaxResponseSize int    `json:"max_response_size" env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_MAX_RESPONSE_SIZE"`
+	Enabled         bool   `json:"enabled"                       env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_ENABLED"`
+	BaseURL         string `json:"base_url,omitempty"            env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_BASE_URL"`
+	AuthToken       string `json:"auth_token,omitempty"          env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_AUTH_TOKEN"`
+	SearchPath      string `json:"search_path,omitempty"         env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_SEARCH_PATH"`
+	SkillsPath      string `json:"skills_path,omitempty"         env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_SKILLS_PATH"`
+	DownloadPath    string `json:"download_path,omitempty"       env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_DOWNLOAD_PATH"`
+	Timeout         int    `json:"timeout,omitempty"             env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_TIMEOUT"`
+	MaxZipSize      int    `json:"max_zip_size,omitempty"        env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_MAX_ZIP_SIZE"`
+	MaxResponseSize int    `json:"max_response_size,omitempty"   env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_MAX_RESPONSE_SIZE"`
 }
 
 // MCPServerConfig defines configuration for a single MCP server
@@ -674,17 +753,9 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// Pre-scan the JSON to check how many model_list entries the user provided.
-	// Go's JSON decoder reuses existing slice backing-array elements rather than
-	// zero-initializing them, so fields absent from the user's JSON (e.g. api_base)
-	// would silently inherit values from the DefaultConfig template at the same
-	// index position. We only reset cfg.ModelList when the user actually provides
-	// entries; when count is 0 we keep DefaultConfig's built-in list as fallback.
-	var tmp Config
-	if err := json.Unmarshal(data, &tmp); err != nil {
-		return nil, err
-	}
-	if len(tmp.ModelList) > 0 {
+	// Lightweight probe: check if user provides model_list so we can clear
+	// default entries before unmarshal (Go reuses slice backing-array elements).
+	if hasUserModelList(data) {
 		cfg.ModelList = nil
 	}
 
@@ -696,20 +767,27 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// Migrate legacy channel config fields to new unified structures
 	cfg.migrateChannelConfigs()
 
-	// Auto-migrate: if only legacy providers config exists, convert to model_list
 	if len(cfg.ModelList) == 0 && cfg.HasProvidersConfig() {
 		cfg.ModelList = ConvertProvidersToModelList(cfg)
 	}
 
-	// Validate model_list for uniqueness and required fields
 	if err := cfg.ValidateModelList(); err != nil {
 		return nil, err
 	}
 
 	return cfg, nil
+}
+
+// hasUserModelList does a lightweight check for non-empty model_list in raw JSON,
+// avoiding a full Config unmarshal just to count entries.
+func hasUserModelList(data []byte) bool {
+	var probe struct {
+		ModelList []json.RawMessage `json:"model_list"`
+	}
+	_ = json.Unmarshal(data, &probe)
+	return len(probe.ModelList) > 0
 }
 
 func (c *Config) migrateChannelConfigs() {

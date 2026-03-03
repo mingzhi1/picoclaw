@@ -150,16 +150,34 @@ func NewAgentInstance(
 
 	candidates := providers.ResolveCandidatesWithLookup(modelCfg, defaults.Provider, resolveFromModelList)
 
-	// Initialise optional Phase 1 analyser for intent/tag-based memory retrieval and CoT selection.
-	// Uses GetAnalyserModel() which resolves: analyser_model → pre_llm_model → model_name.
+	// Initialise optional Phase 1 analyser + reflector using auxiliary model.
+	// Uses GetAuxiliaryModel() which resolves: auxiliary_model → analyser_model → pre_llm_model → primary_model.
+	// If auxiliary model differs from primary, try to create its own provider from model_list.
 	var analyser *Analyser
 	var rt *Reflector
-	analyserModel := defaults.GetAnalyserModel()
-	if analyserModel != "" {
+	auxModel := defaults.GetAuxiliaryModel()
+	if auxModel != "" {
+		auxProvider := provider // default: share primary provider
+		auxModelID := auxModel
+
+		// If auxiliary model differs from primary, resolve its own provider.
+		if auxModel != model && cfg != nil {
+			if mc, err := cfg.GetModelConfig(auxModel); err == nil && mc != nil {
+				if ap, mid, err := providers.CreateProviderFromConfig(mc); err == nil {
+					auxProvider = ap
+					auxModelID = mid
+					log.Printf("Auxiliary model uses its own provider (model: %s)", mc.Model)
+				} else {
+					log.Printf("Warning: failed to create auxiliary provider for %q: %v, falling back to primary provider", auxModel, err)
+				}
+			}
+			// If not in model_list, the raw auxModel string is used as model ID with the primary provider.
+		}
+
 		cotRegistry := NewCotRegistry(workspace)
-		analyser = NewAnalyser(provider, analyserModel, cotRegistry)
-		rt = NewReflector(provider, analyserModel)
-		log.Printf("Analyser + Reflector enabled for agent %s (model: %s)", agentID, analyserModel)
+		analyser = NewAnalyser(auxProvider, auxModelID, cotRegistry)
+		rt = NewReflector(auxProvider, auxModelID)
+		log.Printf("Analyser + Reflector enabled for agent %s (auxiliary_model: %s)", agentID, auxModelID)
 	} else {
 		// Reflector without LLM processors (just commands + error tracker).
 		rt = NewReflector(nil, "")

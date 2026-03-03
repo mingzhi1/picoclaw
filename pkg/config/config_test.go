@@ -325,7 +325,7 @@ func TestSaveConfig_FilePermissions(t *testing.T) {
 	}
 }
 
-func TestSaveConfig_IncludesEmptyLegacyModelField(t *testing.T) {
+func TestSaveConfig_OmitsEmptyLegacyModelField(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "config.json")
 
@@ -339,8 +339,9 @@ func TestSaveConfig_IncludesEmptyLegacyModelField(t *testing.T) {
 		t.Fatalf("ReadFile failed: %v", err)
 	}
 
-	if !strings.Contains(string(data), `"model": ""`) {
-		t.Fatalf("saved config should include empty legacy model field, got: %s", string(data))
+	// With omitempty, empty string fields should NOT appear in the saved config.
+	if strings.Contains(string(data), `"model": ""`) {
+		t.Fatalf("saved config should NOT include empty legacy model field, got: %s", string(data))
 	}
 }
 

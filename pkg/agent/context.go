@@ -45,8 +45,6 @@ func getGlobalConfigDir() string {
 }
 
 func NewContextBuilder(workspace string) *ContextBuilder {
-	// builtin skills: skills directory in current project
-	// Use the skills/ directory under the current working directory
 	wd, _ := os.Getwd()
 	builtinSkillsDir := filepath.Join(wd, "skills")
 	globalSkillsDir := filepath.Join(getGlobalConfigDir(), "skills")
@@ -99,7 +97,12 @@ func (cb *ContextBuilder) BuildSystemPrompt() string {
 	if skillsSummary != "" {
 		parts = append(parts, fmt.Sprintf(`# Skills
 
-The following skills extend your capabilities. To use a skill, read its SKILL.md file using the read_file tool.
+The following skills extend your capabilities. Each skill's description tells you when to use it.
+
+**Rules:**
+1. When the user's request matches a skill description, you MUST read that skill's SKILL.md file with the read_file tool BEFORE taking any other action.
+2. Match by keywords: if the request mentions a tool, channel, or task listed in a skill's description, that skill applies.
+3. Do NOT guess or improvise — read the skill first to get the correct instructions.
 
 %s`, skillsSummary))
 	}
@@ -439,15 +442,13 @@ func (cb *ContextBuilder) BuildMessages(
 			"cached":        isCached,
 		})
 
-	// Log preview of system prompt (avoid logging huge content)
-	preview := fullSystemPrompt
-	if len(preview) > 500 {
-		preview = preview[:500] + "... (truncated)"
-	}
-	logger.DebugCF("agent", "System prompt preview",
-		map[string]any{
-			"preview": preview,
+	// Log full system prompt in DEBUG mode so it can be inspected.
+	if logger.GetLevel() <= logger.DEBUG {
+		logger.DebugCF("agent", "=== SYSTEM PROMPT ===", map[string]any{
+			"prompt": fullSystemPrompt,
+			"chars":  len(fullSystemPrompt),
 		})
+	}
 
 	history = sanitizeHistoryForProvider(history)
 

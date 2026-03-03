@@ -42,8 +42,8 @@ func TestPreLLM_parseResponse(t *testing.T) {
 			wantCot:    "",
 		},
 		{
-			name:       "invalid JSON",
-			input:      "this is not json",
+			name:       "invalid JSON no braces",
+			input:      "this is not json at all",
 			wantIntent: "",
 			wantTags:   nil,
 			wantCot:    "",
@@ -67,6 +67,42 @@ func TestPreLLM_parseResponse(t *testing.T) {
 			input:      `{"intent":"question","tags":["golang"]}`,
 			wantIntent: "question",
 			wantTags:   []string{"golang"},
+			wantCot:    "",
+		},
+		// --- New cases for enhanced parsing ---
+		{
+			name:       "JSON with surrounding text (prefix)",
+			input:      "Here is the analysis:\n{\"intent\":\"task\",\"tags\":[\"deploy\"],\"cot_prompt\":\"plan\"}",
+			wantIntent: "task",
+			wantTags:   []string{"deploy"},
+			wantCot:    "plan",
+		},
+		{
+			name:       "JSON with surrounding text (suffix)",
+			input:      "{\"intent\":\"code\",\"tags\":[\"go\"],\"cot_prompt\":\"\"}\nI hope this helps!",
+			wantIntent: "code",
+			wantTags:   []string{"go"},
+			wantCot:    "",
+		},
+		{
+			name:       "JSON with ```json fence (uppercase)",
+			input:      "```JSON\n{\"intent\":\"debug\",\"tags\":[\"error\"],\"cot_prompt\":\"trace\"}\n```",
+			wantIntent: "debug",
+			wantTags:   []string{"error"},
+			wantCot:    "trace",
+		},
+		{
+			name:       "JSON with nested objects extracted",
+			input:      "The result is: {\"intent\":\"question\",\"tags\":[\"api\"],\"cot_prompt\":\"check docs\"} as requested.",
+			wantIntent: "question",
+			wantTags:   []string{"api"},
+			wantCot:    "check docs",
+		},
+		{
+			name:       "text with braces but invalid inner JSON",
+			input:      "Use {curly braces} for grouping",
+			wantIntent: "",
+			wantTags:   nil,
 			wantCot:    "",
 		},
 	}
@@ -96,6 +132,30 @@ func TestPreLLM_parseResponse(t *testing.T) {
 				if tag != tt.wantTags[i] {
 					t.Errorf("tag[%d] = %q, want %q", i, tag, tt.wantTags[i])
 				}
+			}
+		})
+	}
+}
+
+func TestExtractJSONObject(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"simple object", `{"key":"val"}`, `{"key":"val"}`},
+		{"with prefix", `prefix {"key":"val"} suffix`, `{"key":"val"}`},
+		{"nested braces", `{"a":{"b":1}}`, `{"a":{"b":1}}`},
+		{"braces in string", `{"a":"{not a brace}"}`, `{"a":"{not a brace}"}`},
+		{"no braces", "no json here", ""},
+		{"unmatched open", "{incomplete", ""},
+		{"escaped quotes", `{"a":"say \"hello\""}`, `{"a":"say \"hello\""}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractJSONObject(tt.input)
+			if got != tt.want {
+				t.Errorf("extractJSONObject(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}

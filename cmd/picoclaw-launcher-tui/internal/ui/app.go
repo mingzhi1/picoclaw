@@ -299,7 +299,7 @@ func (s *appState) viewGatewayLog() {
 }
 
 func (s *appState) selectedModelName() string {
-	modelName := strings.TrimSpace(s.config.Agents.Defaults.Model)
+	modelName := strings.TrimSpace(s.config.Agents.Defaults.GetPrimaryModel())
 	if modelName == "" {
 		return ""
 	}
@@ -397,7 +397,7 @@ func (s *appState) isGatewayRunning() bool {
 }
 
 func (s *appState) validateAgentModel() error {
-	modelName := strings.TrimSpace(s.config.Agents.Defaults.Model)
+	modelName := strings.TrimSpace(s.config.Agents.Defaults.GetPrimaryModel())
 	if modelName == "" {
 		return nil
 	}
@@ -406,7 +406,7 @@ func (s *appState) validateAgentModel() error {
 }
 
 func (s *appState) isActiveModelValid() bool {
-	modelName := strings.TrimSpace(s.config.Agents.Defaults.Model)
+	modelName := strings.TrimSpace(s.config.Agents.Defaults.GetPrimaryModel())
 	if modelName == "" {
 		return false
 	}
@@ -420,10 +420,7 @@ func (s *appState) isActiveModelValid() bool {
 }
 
 func (s *appState) hasEnabledChannel() bool {
-	c := s.config.Channels
-	return c.Telegram.Enabled || c.Discord.Enabled || c.QQ.Enabled || c.MaixCam.Enabled ||
-		c.WhatsApp.Enabled || c.Feishu.Enabled || c.DingTalk.Enabled || c.Slack.Enabled ||
-		c.LINE.Enabled || c.OneBot.Enabled || c.WeCom.Enabled || c.WeComApp.Enabled
+	return s.config.Channels.HasEnabled()
 }
 
 func (s *appState) confirmApplyOrDiscard(onApply func(), onDiscard func()) {
