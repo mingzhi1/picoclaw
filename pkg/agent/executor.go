@@ -23,7 +23,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/llm/providers"
 	"github.com/sipeed/picoclaw/pkg/tools"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/sipeed/picoclaw/pkg/infra/utils"
 )
 
 func (al *AgentLoop) targetReasoningChannelID(channelName string) (chatID string) {

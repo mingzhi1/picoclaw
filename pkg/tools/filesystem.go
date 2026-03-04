@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/fileutil"
+	"github.com/sipeed/picoclaw/pkg/infra/fileutil"
 )
 
 // validatePath ensures the given path is within the workspace if restrict is true.

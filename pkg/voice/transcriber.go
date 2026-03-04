@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/sipeed/picoclaw/pkg/infra/utils"
 )
 
 type GroqTranscriber struct {

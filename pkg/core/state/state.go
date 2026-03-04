@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/fileutil"
+	"github.com/sipeed/picoclaw/pkg/infra/fileutil"
 )
 
 // State represents the persistent state for a workspace.

@@ -8,7 +8,7 @@ import (
 
 	"github.com/caarlos0/env/v11"
 
-	"github.com/sipeed/picoclaw/pkg/fileutil"
+	"github.com/sipeed/picoclaw/pkg/infra/fileutil"
 )
 
 // rrCounter is a global counter for round-robin load balancing across models.
