@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
-	"github.com/sipeed/picoclaw/pkg/auth"
+	"github.com/sipeed/picoclaw/pkg/llm/auth"
 )
 
 func statusCmd() {

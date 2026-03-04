@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/auth"
+	"github.com/sipeed/picoclaw/pkg/llm/auth"
 	"github.com/sipeed/picoclaw/pkg/logger"
 )
 
