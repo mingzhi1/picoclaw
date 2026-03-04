@@ -29,7 +29,7 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 	}
 
 	// Apply logging config (config file setting).
-	logger.ApplyConfig(cfg.Logging.Level, cfg.Logging.FileDir)
+	logger.ApplyConfig(cfg.Logging.Level, cfg.Logging.FileDir, cfg.Logging.PromptDir)
 
 	// Debug flag overrides config.
 	if debug {

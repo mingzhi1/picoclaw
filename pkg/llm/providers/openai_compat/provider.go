@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/llm/providers/protocoltypes"
 )
 
@@ -112,6 +113,7 @@ func (p *Provider) Chat(
 		return nil, fmt.Errorf("API base not configured")
 	}
 
+	start := time.Now()
 	model = normalizeModel(model, p.apiBase)
 
 	requestBody := map[string]any{
@@ -125,10 +127,8 @@ func (p *Provider) Chat(
 	}
 
 	if maxTokens, ok := asInt(options["max_tokens"]); ok {
-		// Use configured maxTokensField if specified, otherwise fallback to model-based detection
 		fieldName := p.maxTokensField
 		if fieldName == "" {
-			// Fallback: detect from model name for backward compatibility
 			lowerModel := strings.ToLower(model)
 			if strings.Contains(lowerModel, "glm") || strings.Contains(lowerModel, "o1") ||
 				strings.Contains(lowerModel, "gpt-5") {
@@ -142,7 +142,6 @@ func (p *Provider) Chat(
 
 	if temperature, ok := asFloat(options["temperature"]); ok {
 		lowerModel := strings.ToLower(model)
-		// Kimi k2 models only support temperature=1.
 		if strings.Contains(lowerModel, "kimi") && strings.Contains(lowerModel, "k2") {
 			requestBody["temperature"] = 1.0
 		} else {
@@ -150,12 +149,6 @@ func (p *Provider) Chat(
 		}
 	}
 
-	// Prompt caching: pass a stable cache key so OpenAI can bucket requests
-	// with the same key and reuse prefix KV cache across calls.
-	// The key is typically the agent ID — stable per agent, shared across requests.
-	// See: https://platform.openai.com/docs/guides/prompt-caching
-	// Prompt caching is only supported by OpenAI-native endpoints.
-	// Gemini and other providers reject unknown fields, so skip for non-OpenAI APIs.
 	if cacheKey, ok := options["prompt_cache_key"].(string); ok && cacheKey != "" {
 		if !strings.Contains(p.apiBase, "generativelanguage.googleapis.com") {
 			requestBody["prompt_cache_key"] = cacheKey
@@ -179,20 +172,63 @@ func (p *Provider) Chat(
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
+		p.logPromptCall(model, messages, tools, options, nil, err.Error(), start)
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		p.logPromptCall(model, messages, tools, options, nil, err.Error(), start)
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		errMsg := fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))
+		p.logPromptCall(model, messages, tools, options, nil, errMsg, start)
 		return nil, fmt.Errorf("API request failed:\n  Status: %d\n  Body:   %s", resp.StatusCode, string(body))
 	}
 
-	return parseResponse(body)
+	result, parseErr := parseResponse(body)
+	p.logPromptCall(model, messages, tools, options, result, "", start)
+	if parseErr != nil {
+		return nil, parseErr
+	}
+	return result, nil
+}
+
+// logPromptCall records a prompt/response pair if prompt logging is enabled.
+func (p *Provider) logPromptCall(
+	model string,
+	messages []Message,
+	tools []ToolDefinition,
+	options map[string]any,
+	response *LLMResponse,
+	errMsg string,
+	start time.Time,
+) {
+	if !logger.IsPromptLoggingEnabled() {
+		return
+	}
+
+	entry := &logger.PromptEntry{
+		Model:    model,
+		Messages: messages,
+		Options:  options,
+		Latency:  fmt.Sprintf("%dms", time.Since(start).Milliseconds()),
+	}
+
+	if len(tools) > 0 {
+		entry.Tools = tools
+	}
+	if response != nil {
+		entry.Response = response
+	}
+	if errMsg != "" {
+		entry.Error = errMsg
+	}
+
+	logger.LogPrompt(entry)
 }
 
 func parseResponse(body []byte) (*LLMResponse, error) {

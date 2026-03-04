@@ -19,8 +19,9 @@ type DevicesConfig struct {
 
 // LoggingConfig controls log output.
 type LoggingConfig struct {
-	Level   string `json:"level,omitempty"`    // debug, info, warn, error (default: warn)
-	FileDir string `json:"file_dir,omitempty"` // directory for log files; empty = no file logging
+	Level     string `json:"level,omitempty"`      // debug, info, warn, error (default: warn)
+	FileDir   string `json:"file_dir,omitempty"`   // directory for system log files; empty = no file logging
+	PromptDir string `json:"prompt_dir,omitempty"` // directory for LLM prompt/response logs; empty = no prompt logging
 }
 
 type ToolsConfig struct {

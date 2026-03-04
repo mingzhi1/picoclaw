@@ -76,8 +76,8 @@ func SetLevelByName(name string) {
 	}
 }
 
-// ApplyConfig sets level and file logging from config values.
-func ApplyConfig(level, fileDir string) {
+// ApplyConfig sets level, file logging, and prompt logging from config values.
+func ApplyConfig(level, fileDir, promptDir string) {
 	if level != "" {
 		SetLevelByName(level)
 	}
@@ -85,6 +85,9 @@ func ApplyConfig(level, fileDir string) {
 		logFile := filepath.Join(fileDir, "picoclaw.log")
 		os.MkdirAll(fileDir, 0755)
 		_ = EnableFileLogging(logFile)
+	}
+	if promptDir != "" {
+		_ = EnablePromptLogging(promptDir)
 	}
 }
 
