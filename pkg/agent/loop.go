@@ -19,6 +19,9 @@ import (
 	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/infra/config"
 	"github.com/sipeed/picoclaw/pkg/core"
+	"github.com/sipeed/picoclaw/pkg/extension"
+	"github.com/sipeed/picoclaw/pkg/extension/devices"
+	"github.com/sipeed/picoclaw/pkg/infra/kvcache"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/llm/mcp"
 	"github.com/sipeed/picoclaw/pkg/infra/media"
@@ -45,6 +48,8 @@ type AgentLoop struct {
 	turnStore      *TurnStore             // per-workspace turns.db
 	activeCtx      *ActiveContextStore    // per channel:chatID context
 	memoryDigest   *MemoryDigestWorker    // background memory distillation
+	cache          *kvcache.Store         // persistent KV cache (workspace/cache.db)
+	extensions     *extension.Manager     // optional extension modules (devices, media, voice)
 }
 
 // processOptions configures how a message is processed
@@ -113,6 +118,42 @@ func NewAgentLoop(
 		}
 	}
 
+	// Persistent KV cache for general-purpose caching (web results, analysis, etc.)
+	var kvCache *kvcache.Store
+	if defaultAgent != nil {
+		var cacheErr error
+		kvCache, cacheErr = kvcache.New(filepath.Join(defaultAgent.Workspace, "cache.db"))
+		if cacheErr != nil {
+			logger.WarnCF("agent", "Failed to open KV cache", map[string]any{"error": cacheErr.Error()})
+		}
+	}
+
+	// Extension manager: register optional modules based on config.
+	extMgr := extension.NewManager()
+	if cfg.Devices.Enabled {
+		extMgr.Register(devices.New())
+	}
+	// Init extensions and inject their tools into all agents.
+	if defaultAgent != nil {
+		extCtx := extension.ExtensionContext{
+			Workspace: defaultAgent.Workspace,
+			Config: map[string]any{
+				"enabled":     cfg.Devices.Enabled,
+				"monitor_usb": cfg.Devices.MonitorUSB,
+			},
+		}
+		if err := extMgr.InitAll(extCtx); err != nil {
+			logger.WarnCF("agent", "Extension init error", map[string]any{"error": err.Error()})
+		}
+		for _, tool := range extMgr.CollectTools() {
+			for _, aid := range registry.ListAgentIDs() {
+				if a, ok := registry.GetAgent(aid); ok {
+					a.Tools.Register(tool)
+				}
+			}
+		}
+	}
+
 	return &AgentLoop{
 		bus:          msgBus,
 		cfg:          cfg,
@@ -123,6 +164,8 @@ func NewAgentLoop(
 		turnStore:    ts,
 		activeCtx:    activeCtxStore,
 		memoryDigest: digestWorker,
+		cache:        kvCache,
+		extensions:   extMgr,
 	}
 }
 
@@ -167,9 +210,8 @@ func registerSharedTools(
 			agent.Tools.Register(fetchTool)
 		}
 
-		// Hardware tools (I2C, SPI) - Linux only, returns error on other platforms
-		agent.Tools.Register(tools.NewI2CTool())
-		agent.Tools.Register(tools.NewSPITool())
+		// Hardware tools (I2C, SPI) moved to pkg/extension/devices.
+		// Registered conditionally via extension manager if devices.enabled = true.
 
 		// Message tool
 		messageTool := tools.NewMessageTool()
@@ -225,6 +267,13 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 	// Start MemoryDigest background worker.
 	if al.memoryDigest != nil {
 		al.memoryDigest.Start(ctx)
+	}
+
+	// Start extensions (devices, media, voice, etc.)
+	if al.extensions != nil {
+		if err := al.extensions.StartAll(ctx); err != nil {
+			logger.WarnCF("agent", "Extension start error", map[string]any{"error": err.Error()})
+		}
 	}
 
 	// Initialize MCP servers for all agents
@@ -386,6 +435,21 @@ func (al *AgentLoop) Stop() {
 			logger.WarnCF("agent", "Failed to close turn store", map[string]any{"error": err.Error()})
 		}
 	}
+	// Close KV cache.
+	if al.cache != nil {
+		if err := al.cache.Close(); err != nil {
+			logger.WarnCF("agent", "Failed to close KV cache", map[string]any{"error": err.Error()})
+		}
+	}
+	// Stop extensions (reverse order).
+	if al.extensions != nil {
+		al.extensions.StopAll()
+	}
+}
+
+// Cache returns the persistent KV cache, or nil if unavailable.
+func (al *AgentLoop) Cache() *kvcache.Store {
+	return al.cache
 }
 
 func (al *AgentLoop) RegisterTool(tool tools.Tool) {
