@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/llm/providers"
 )
 
 // setupWorkspace creates a temporary workspace with standard directories and optional files.

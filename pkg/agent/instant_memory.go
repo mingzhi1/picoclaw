@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/llm/providers"
 )
 
 // ---------------------------------------------------------------------------

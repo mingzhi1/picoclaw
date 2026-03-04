@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/llm/auth"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/llm/providers"
 )
 
 // oauthSession stores in-flight OAuth state for browser-based flows.
