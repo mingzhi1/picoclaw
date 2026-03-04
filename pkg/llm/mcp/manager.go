@@ -15,6 +15,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/sipeed/picoclaw/pkg/infra/config"
+	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 )
 
@@ -290,7 +291,7 @@ func (m *Manager) ConnectServer(
 			// Create a custom HTTP client with header-injecting transport
 			sseTransport.HTTPClient = &http.Client{
 				Transport: &headerTransport{
-					base:    http.DefaultTransport,
+					base:    httpclient.Default().Transport,
 					headers: cfg.Headers,
 				},
 			}

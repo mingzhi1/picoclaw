@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
 	"github.com/sipeed/picoclaw/pkg/infra/utils"
 )
 
@@ -31,7 +32,7 @@ func (si *SkillInstaller) InstallFromGitHub(ctx context.Context, repo string) er
 
 	url := fmt.Sprintf("https://raw.githubusercontent.com/%s/main/SKILL.md", repo)
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := httpclient.New(15 * time.Second)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)

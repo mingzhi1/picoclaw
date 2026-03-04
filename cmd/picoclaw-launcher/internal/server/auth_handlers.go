@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
 	"github.com/sipeed/picoclaw/pkg/llm/auth"
 	"github.com/sipeed/picoclaw/pkg/llm/providers"
 )
@@ -290,7 +291,7 @@ func fetchGoogleUserEmail(accessToken string) (string, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := httpclient.New(10 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err

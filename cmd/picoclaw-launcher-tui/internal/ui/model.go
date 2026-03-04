@@ -10,6 +10,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
+	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
 	picoclawconfig "github.com/sipeed/picoclaw/pkg/infra/config"
 )
 
@@ -316,7 +317,7 @@ func (s *appState) testModel(model *picoclawconfig.ModelConfig) {
 		`{"model":"%s","messages":[{"role":"user","content":"ping"}],"max_tokens":1}`,
 		modelName,
 	)
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := httpclient.New(10 * time.Second)
 	request, err := http.NewRequest("POST", endpoint, strings.NewReader(payload))
 	if err != nil {
 		s.showMessage("Test failed", err.Error())

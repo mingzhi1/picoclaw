@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
 	"github.com/sipeed/picoclaw/pkg/llm/auth"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 )
@@ -36,9 +37,7 @@ type AntigravityProvider struct {
 func NewAntigravityProvider() *AntigravityProvider {
 	return &AntigravityProvider{
 		tokenSource: createAntigravityTokenSource(),
-		httpClient: &http.Client{
-			Timeout: 120 * time.Second,
-		},
+		httpClient:  httpclient.New(120 * time.Second),
 	}
 }
 
@@ -633,7 +632,7 @@ func FetchAntigravityProjectID(accessToken string) (string, error) {
 	req.Header.Set("User-Agent", antigravityUserAgent)
 	req.Header.Set("X-Goog-Api-Client", antigravityXGoogClient)
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := httpclient.New(15 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -674,7 +673,7 @@ func FetchAntigravityModels(accessToken, projectID string) ([]AntigravityModelIn
 	req.Header.Set("User-Agent", antigravityUserAgent)
 	req.Header.Set("X-Goog-Api-Client", antigravityXGoogClient)
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := httpclient.New(15 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

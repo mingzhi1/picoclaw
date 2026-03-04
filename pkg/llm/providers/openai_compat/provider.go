@@ -6,12 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
+	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/llm/providers/protocoltypes"
 )
@@ -55,19 +54,11 @@ func WithRequestTimeout(timeout time.Duration) Option {
 }
 
 func NewProvider(apiKey, apiBase, proxy string, opts ...Option) *Provider {
-	client := &http.Client{
-		Timeout: defaultRequestTimeout,
-	}
-
-	if proxy != "" {
-		parsed, err := url.Parse(proxy)
-		if err == nil {
-			client.Transport = &http.Transport{
-				Proxy: http.ProxyURL(parsed),
-			}
-		} else {
-			log.Printf("openai_compat: invalid proxy URL %q: %v", proxy, err)
-		}
+	// Use httpclient: per-model proxy overrides global proxy.
+	client, err := httpclient.NewWithProxy(defaultRequestTimeout, proxy)
+	if err != nil {
+		// Fall back to global-only client on invalid per-model proxy.
+		client = httpclient.New(defaultRequestTimeout)
 	}
 
 	p := &Provider{
@@ -282,7 +273,8 @@ func parseResponse(body []byte) (*LLMResponse, error) {
 			name = tc.Function.Name
 			if tc.Function.Arguments != "" {
 				if err := json.Unmarshal([]byte(tc.Function.Arguments), &arguments); err != nil {
-					log.Printf("openai_compat: failed to decode tool call arguments for %q: %v", name, err)
+					logger.WarnCF("openai_compat", "failed to decode tool call arguments",
+						map[string]any{"name": name, "error": err.Error()})
 					arguments["raw"] = tc.Function.Arguments
 				}
 			}

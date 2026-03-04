@@ -17,6 +17,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/core/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/infra/config"
+	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
 	"github.com/sipeed/picoclaw/pkg/core/identity"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/infra/media"
@@ -71,8 +72,8 @@ func NewLINEChannel(cfg config.LINEConfig, messageBus *bus.MessageBus) (*LINECha
 	return &LINEChannel{
 		BaseChannel: base,
 		config:      cfg,
-		infoClient:  &http.Client{Timeout: 10 * time.Second},
-		apiClient:   &http.Client{Timeout: 30 * time.Second},
+		infoClient:  httpclient.New(10 * time.Second),
+		apiClient:   httpclient.New(30 * time.Second),
 	}, nil
 }
 

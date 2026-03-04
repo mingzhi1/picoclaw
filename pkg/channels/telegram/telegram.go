@@ -3,8 +3,6 @@ package telegram
 import (
 	"context"
 	"fmt"
-	"net/http"
-	"net/url"
 	"os"
 	"regexp"
 	"slices"
@@ -19,6 +17,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/core/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/infra/config"
+	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
 	"github.com/sipeed/picoclaw/pkg/core/identity"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/infra/media"
@@ -54,22 +53,15 @@ func NewTelegramChannel(cfg *config.Config, bus *bus.MessageBus) (*TelegramChann
 	telegramCfg := cfg.Channels.Telegram
 
 	if telegramCfg.Proxy != "" {
-		proxyURL, parseErr := url.Parse(telegramCfg.Proxy)
-		if parseErr != nil {
-			return nil, fmt.Errorf("invalid proxy URL %q: %w", telegramCfg.Proxy, parseErr)
+		// Per-channel proxy override
+		client, proxyErr := httpclient.NewWithProxy(0, telegramCfg.Proxy)
+		if proxyErr != nil {
+			return nil, fmt.Errorf("invalid telegram proxy: %w", proxyErr)
 		}
-		opts = append(opts, telego.WithHTTPClient(&http.Client{
-			Transport: &http.Transport{
-				Proxy: http.ProxyURL(proxyURL),
-			},
-		}))
-	} else if os.Getenv("HTTP_PROXY") != "" || os.Getenv("HTTPS_PROXY") != "" {
-		// Use environment proxy if configured
-		opts = append(opts, telego.WithHTTPClient(&http.Client{
-			Transport: &http.Transport{
-				Proxy: http.ProxyFromEnvironment,
-			},
-		}))
+		opts = append(opts, telego.WithHTTPClient(client))
+	} else {
+		// Use global httpclient (inherits global proxy + env proxy)
+		opts = append(opts, telego.WithHTTPClient(httpclient.Default()))
 	}
 
 	bot, err := telego.NewBot(telegramCfg.Token, opts...)

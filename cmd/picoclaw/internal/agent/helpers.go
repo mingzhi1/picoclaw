@@ -14,6 +14,7 @@ import (
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
 	"github.com/sipeed/picoclaw/pkg/agent"
 	"github.com/sipeed/picoclaw/pkg/core/bus"
+	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/llm/providers"
 )
@@ -30,6 +31,9 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 
 	// Apply logging config (config file setting).
 	logger.ApplyConfig(cfg.Logging.Level, cfg.Logging.FileDir, cfg.Logging.PromptDir)
+
+	// Initialize global HTTP client with proxy from config.
+	httpclient.Init(cfg.Proxy)
 
 	// Debug flag overrides config.
 	if debug {

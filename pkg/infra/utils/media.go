@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 )
 
@@ -91,7 +92,7 @@ func DownloadFile(url, filename string, opts DownloadOptions) string {
 		req.Header.Set(key, value)
 	}
 
-	client := &http.Client{Timeout: opts.Timeout}
+	client := httpclient.New(opts.Timeout)
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.ErrorCF(opts.LoggerPrefix, "Failed to download file", map[string]any{

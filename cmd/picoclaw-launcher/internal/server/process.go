@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/infra/config"
+	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
 )
 
 // gatewayLogs stores captured stdout/stderr from the gateway process launched by the launcher.
@@ -148,7 +149,7 @@ func handleStatusGateway(w http.ResponseWriter, r *http.Request, absPath string)
 	}
 
 	url := fmt.Sprintf("http://%s/health", net.JoinHostPort(host, strconv.Itoa(port)))
-	client := http.Client{Timeout: 2 * time.Second}
+	client := httpclient.New(2 * time.Second)
 	resp, err := client.Get(url)
 
 	// Build the response data map

@@ -14,6 +14,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/core/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/infra/config"
+	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
 	"github.com/sipeed/picoclaw/pkg/core/identity"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/infra/utils"
@@ -103,7 +104,7 @@ func NewWeComBotChannel(cfg config.WeComConfig, messageBus *bus.MessageBus) (*We
 	return &WeComBotChannel{
 		BaseChannel:   base,
 		config:        cfg,
-		client:        &http.Client{Timeout: clientTimeout},
+		client:        httpclient.New(clientTimeout),
 		ctx:           ctx,
 		cancel:        cancel,
 		processedMsgs: NewMessageDeduplicator(wecomMaxProcessedMessages),

@@ -30,6 +30,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/infra/cron"
 	"github.com/sipeed/picoclaw/pkg/infra/health"
 	"github.com/sipeed/picoclaw/pkg/infra/heartbeat"
+	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/infra/media"
 	"github.com/sipeed/picoclaw/pkg/llm/providers"
@@ -46,6 +47,9 @@ func gatewayCmd(debug bool) error {
 	if err != nil {
 		return fmt.Errorf("error loading config: %w", err)
 	}
+
+	// Initialize global HTTP client with proxy from config.
+	httpclient.Init(cfg.Proxy)
 
 	provider, modelID, err := providers.CreateProvider(cfg)
 	if err != nil {

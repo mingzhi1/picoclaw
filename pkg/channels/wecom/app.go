@@ -19,6 +19,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/core/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/infra/config"
+	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
 	"github.com/sipeed/picoclaw/pkg/core/identity"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/infra/utils"
@@ -140,7 +141,7 @@ func NewWeComAppChannel(cfg config.WeComAppConfig, messageBus *bus.MessageBus) (
 	return &WeComAppChannel{
 		BaseChannel:   base,
 		config:        cfg,
-		client:        &http.Client{Timeout: clientTimeout},
+		client:        httpclient.New(clientTimeout),
 		ctx:           ctx,
 		cancel:        cancel,
 		processedMsgs: NewMessageDeduplicator(wecomMaxProcessedMessages),
@@ -673,7 +674,7 @@ func (c *WeComAppChannel) refreshAccessToken() error {
 	apiURL := fmt.Sprintf("%s/cgi-bin/gettoken?corpid=%s&corpsecret=%s",
 		wecomAPIBase, url.QueryEscape(c.config.CorpID), url.QueryEscape(c.config.CorpSecret))
 
-	resp, err := http.Get(apiURL)
+	resp, err := httpclient.Default().Get(apiURL)
 	if err != nil {
 		return fmt.Errorf("failed to request access token: %w", err)
 	}

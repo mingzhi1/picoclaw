@@ -17,6 +17,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/core/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/infra/config"
+	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
 	"github.com/sipeed/picoclaw/pkg/core/identity"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/infra/utils"
@@ -782,7 +783,7 @@ func (c *WeComAIBotChannel) sendViaResponseURL(responseURL, content string) erro
 	}
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := httpclient.New(15 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("post to response_url failed: %w: %w", channels.ErrTemporary, err)

@@ -42,6 +42,7 @@ func (f *FlexibleStringSlice) UnmarshalJSON(data []byte) error {
 
 // Config is the top-level configuration struct for PicoClaw.
 type Config struct {
+	Proxy     string          `json:"proxy,omitempty"    env:"PICOCLAW_PROXY"` // Global HTTP proxy (overridden by per-model/per-tool proxy)
 	Agents    AgentsConfig    `json:"agents"`
 	Bindings  []AgentBinding  `json:"bindings,omitempty"`
 	Session   SessionConfig   `json:"session,omitempty"`

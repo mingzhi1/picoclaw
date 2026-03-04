@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/infra/utils"
 )
@@ -63,7 +64,7 @@ func NewTranscriber(cfg TranscriberConfig) (*Transcriber, error) {
 
 	return &Transcriber{
 		cfg:        cfg,
-		httpClient: &http.Client{Timeout: cfg.Timeout},
+		httpClient: httpclient.New(cfg.Timeout),
 	}, nil
 }
 
