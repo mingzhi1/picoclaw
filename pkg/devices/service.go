@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/constants"
+	"github.com/sipeed/picoclaw/pkg/core"
 	"github.com/sipeed/picoclaw/pkg/devices/events"
 	"github.com/sipeed/picoclaw/pkg/devices/sources"
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -123,7 +123,7 @@ func (s *Service) sendNotification(ev *events.DeviceEvent) {
 	}
 
 	platform, userID := parseLastChannel(lastChannel)
-	if platform == "" || userID == "" || constants.IsInternalChannel(platform) {
+	if platform == "" || userID == "" || core.IsInternalChannel(platform) {
 		return
 	}
 

@@ -18,7 +18,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/constants"
+	"github.com/sipeed/picoclaw/pkg/core"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/mcp"
 	"github.com/sipeed/picoclaw/pkg/media"
@@ -618,7 +618,7 @@ func (al *AgentLoop) processSystemMessage(
 	}
 
 	// Skip internal channels - only log, don't send to user
-	if constants.IsInternalChannel(originChannel) {
+	if core.IsInternalChannel(originChannel) {
 		logger.InfoCF("agent", "Subagent completed (internal channel)",
 			map[string]any{
 				"sender_id":   msg.SenderID,
@@ -660,7 +660,7 @@ func (al *AgentLoop) runAgentLoop(
 	// 0. Record last channel for heartbeat notifications (skip internal channels)
 	if opts.Channel != "" && opts.ChatID != "" {
 		// Don't record internal channels (cli, system, subagent)
-		if !constants.IsInternalChannel(opts.Channel) {
+		if !core.IsInternalChannel(opts.Channel) {
 			channelKey := fmt.Sprintf("%s:%s", opts.Channel, opts.ChatID)
 			if err := al.RecordLastChannel(channelKey); err != nil {
 				logger.WarnCF(

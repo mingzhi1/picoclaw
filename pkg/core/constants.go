@@ -1,5 +1,5 @@
-// Package constants provides shared constants across the codebase.
-package constants
+// Package core provides shared runtime types and constants across the codebase.
+package core
 
 import "strings"
 

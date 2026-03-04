@@ -19,7 +19,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/constants"
+	"github.com/sipeed/picoclaw/pkg/core"
 	"github.com/sipeed/picoclaw/pkg/health"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/media"
@@ -563,7 +563,7 @@ func dispatchLoop[M any](
 		channel := getChannel(msg)
 
 		// Silently skip internal channels
-		if constants.IsInternalChannel(channel) {
+		if core.IsInternalChannel(channel) {
 			continue
 		}
 

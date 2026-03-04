@@ -19,7 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/constants"
+	"github.com/sipeed/picoclaw/pkg/core"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/tools"
@@ -203,7 +203,7 @@ func (al *AgentLoop) runLLMIteration(
 					"retry": retry,
 				})
 
-				if retry == 0 && !constants.IsInternalChannel(opts.Channel) {
+				if retry == 0 && !core.IsInternalChannel(opts.Channel) {
 					al.bus.PublishOutbound(ctx, bus.OutboundMessage{
 						Channel: opts.Channel,
 						ChatID:  opts.ChatID,
