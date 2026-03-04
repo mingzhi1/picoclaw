@@ -3,6 +3,12 @@ package core
 
 import "strings"
 
+// Brand constants
+const (
+	Logo    = "🦞"
+	AppName = "picoclaw"
+)
+
 // internalChannels defines channels that are used for internal communication
 // and should not be exposed to external users or recorded as last active channel.
 var internalChannels = map[string]struct{}{

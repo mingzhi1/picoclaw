@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/sipeed/picoclaw/pkg/core"
 	"github.com/sipeed/picoclaw/pkg/infra/config"
 )
 
-const Logo = "🦞"
+// Logo re-exports core.Logo for backward compatibility with cmd/ callers.
+const Logo = core.Logo
 
 var (
 	version   = "dev"
