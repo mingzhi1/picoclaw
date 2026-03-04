@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -122,10 +123,58 @@ func estimateTokens(r TurnRecord) int {
 	return chars / 3
 }
 
-// NewTurnID generates a time-sortable unique ID without external dependencies.
-// Format: unixMilli-randomSuffix using millisecond precision.
-func NewTurnID() string {
-	return fmt.Sprintf("%d-%d", time.Now().UnixMilli(), time.Now().Nanosecond()%1_000_000)
+// ---------------------------------------------------------------------------
+// Turn ID generation — channel-aware, time-sortable, compact
+// ---------------------------------------------------------------------------
+
+// base62Chars is the alphabet for base62 encoding (0-9, A-Z, a-z).
+const base62Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+// encodeBase62 encodes a uint64 value to a base62 string.
+func encodeBase62(n uint64) string {
+	if n == 0 {
+		return "0"
+	}
+	var buf [12]byte // max 11 chars for uint64 in base62
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = base62Chars[n%62]
+		n /= 62
+	}
+	return string(buf[i:])
+}
+
+// fnv32a computes a 32-bit FNV-1a hash of the string.
+func fnv32a(s string) uint32 {
+	var h uint32 = 2166136261
+	for i := 0; i < len(s); i++ {
+		h ^= uint32(s[i])
+		h *= 16777619
+	}
+	return h
+}
+
+// turnIDCounter is a process-wide atomic counter for sub-millisecond uniqueness.
+var turnIDCounter uint64
+
+// NewTurnID generates a channel-aware, time-sortable, compact ID.
+// Format: b62(channelHash)_b62(unixMilli)_b62(counter)
+// Example: "1Bx_5kR9wG_3" — short, URL-safe, embeds channel identity.
+//
+// Falls back to timestamp-only if channelKey is empty.
+func NewTurnID(channelKey string) string {
+	ms := uint64(time.Now().UnixMilli())
+	seq := atomic.AddUint64(&turnIDCounter, 1) - 1
+
+	tsEnc := encodeBase62(ms)
+
+	if channelKey == "" {
+		return tsEnc + "_" + encodeBase62(seq)
+	}
+
+	chHash := encodeBase62(uint64(fnv32a(channelKey)))
+	return chHash + "_" + tsEnc + "_" + encodeBase62(seq)
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +185,7 @@ func NewTurnID() string {
 // The record's ID and Ts are set if empty/zero.
 func (s *TurnStore) Insert(r TurnRecord) error {
 	if r.ID == "" {
-		r.ID = NewTurnID()
+		r.ID = NewTurnID(r.ChannelKey)
 	}
 	if r.Ts == 0 {
 		r.Ts = time.Now().Unix()
@@ -190,13 +239,13 @@ func (s *TurnStore) QueryPending(limit int) ([]TurnRecord, error) {
 	return scanTurns(rows)
 }
 
-// QueryByScore returns all turns with score >= highThreshold (always_keep),
-// ordered by ts ASC.
-func (s *TurnStore) QueryByScore(highThreshold int) ([]TurnRecord, error) {
+// QueryByScore returns all turns with score >= highThreshold (always_keep)
+// for the given channelKey, ordered by ts ASC.
+func (s *TurnStore) QueryByScore(channelKey string, highThreshold int) ([]TurnRecord, error) {
 	rows, err := s.db.Query(`
 		SELECT id, ts, channel_key, score, intent, tags, tokens, status, user_msg, reply, tool_calls
-		FROM turns WHERE score >= ? AND status != 'archived'
-		ORDER BY ts ASC`, highThreshold)
+		FROM turns WHERE channel_key = ? AND score >= ? AND status != 'archived'
+		ORDER BY ts ASC`, channelKey, highThreshold)
 	if err != nil {
 		return nil, err
 	}
@@ -205,14 +254,15 @@ func (s *TurnStore) QueryByScore(highThreshold int) ([]TurnRecord, error) {
 }
 
 // QueryByTags returns turns whose tags JSON contains at least one of the given tags
-// and score > 0, ordered by ts ASC.
-func (s *TurnStore) QueryByTags(tags []string) ([]TurnRecord, error) {
+// and score > 0 for the given channelKey, ordered by ts ASC.
+func (s *TurnStore) QueryByTags(channelKey string, tags []string) ([]TurnRecord, error) {
 	if len(tags) == 0 {
 		return nil, nil
 	}
 	// Build LIKE conditions for simple JSON array matching.
 	conds := make([]string, 0, len(tags))
-	args := make([]any, 0, len(tags)*2)
+	args := make([]any, 1, 1+len(tags)*2)
+	args[0] = channelKey
 	for _, t := range tags {
 		t = strings.ToLower(strings.TrimSpace(t))
 		if t == "" {
@@ -224,11 +274,10 @@ func (s *TurnStore) QueryByTags(tags []string) ([]TurnRecord, error) {
 	if len(conds) == 0 {
 		return nil, nil
 	}
-	// Append non-archived filter.
 	query := fmt.Sprintf(`
 		SELECT id, ts, channel_key, score, intent, tags, tokens, status, user_msg, reply, tool_calls
 		FROM turns
-		WHERE score > 0 AND status != 'archived' AND (%s)
+		WHERE channel_key = ? AND score > 0 AND status != 'archived' AND (%s)
 		ORDER BY ts ASC`, strings.Join(conds, " OR "))
 
 	rows, err := s.db.Query(query, args...)

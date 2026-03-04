@@ -17,6 +17,8 @@ var (
 	namePattern        = regexp.MustCompile(`^[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*$`)
 	reFrontmatter      = regexp.MustCompile(`(?s)^---(?:\r\n|\n|\r)(.*?)(?:\r\n|\n|\r)---`)
 	reStripFrontmatter = regexp.MustCompile(`(?s)^---(?:\r\n|\n|\r)(.*?)(?:\r\n|\n|\r)---(?:\r\n|\n|\r)*`)
+	reToolStep         = regexp.MustCompile(`(?m)^\d+\.\s*\[(parallel|serial)\]\s*(.+)$`)
+	reKeywordSplit     = regexp.MustCompile(`[\s,()\x{3001}\x{ff0c}\x{ff08}\x{ff09}—/]+`)
 )
 
 const (
@@ -24,16 +26,26 @@ const (
 	MaxDescriptionLength = 1024
 )
 
+// ToolStep represents one step in a skill's tool execution plan.
+// Defined in SKILL.md body with format: "N. [parallel|serial] action1 | action2"
+type ToolStep struct {
+	Step    int      // 1-based step number
+	Mode    string   // "parallel" or "serial"
+	Actions []string // Tool actions (e.g. "read_file ~/.picoclaw/config.json")
+}
+
 type SkillMetadata struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	ToolSteps   []ToolStep `json:"-"`
 }
 
 type SkillInfo struct {
-	Name        string `json:"name"`
-	Path        string `json:"path"`
-	Source      string `json:"source"`
-	Description string `json:"description"`
+	Name        string     `json:"name"`
+	Path        string     `json:"path"`
+	Source      string     `json:"source"`
+	Description string     `json:"description"`
+	ToolSteps   []ToolStep `json:"-"`
 }
 
 func (info SkillInfo) validate() error {
@@ -102,6 +114,7 @@ func (sl *SkillsLoader) ListSkills() []SkillInfo {
 			if metadata != nil {
 				info.Description = metadata.Description
 				info.Name = metadata.Name
+				info.ToolSteps = metadata.ToolSteps
 			}
 			if err := info.validate(); err != nil {
 				slog.Warn("invalid skill from "+source, "name", info.Name, "error", err)
@@ -216,18 +229,23 @@ func (sl *SkillsLoader) getSkillMetadata(skillPath string) *SkillMetadata {
 		Description string `json:"description"`
 	}
 	if err := json.Unmarshal([]byte(frontmatter), &jsonMeta); err == nil {
-		return &SkillMetadata{
+		meta := &SkillMetadata{
 			Name:        jsonMeta.Name,
 			Description: jsonMeta.Description,
 		}
+		meta.ToolSteps = parseToolSteps(string(content))
+		return meta
 	}
 
 	// Fall back to simple YAML parsing
 	yamlMeta := sl.parseSimpleYAML(frontmatter)
-	return &SkillMetadata{
+	meta := &SkillMetadata{
 		Name:        yamlMeta["name"],
 		Description: yamlMeta["description"],
 	}
+	// Parse tool_steps from body (not frontmatter)
+	meta.ToolSteps = parseToolSteps(string(content))
+	return meta
 }
 
 // parseSimpleYAML parses simple key: value YAML format
@@ -277,4 +295,89 @@ func escapeXML(s string) string {
 	s = strings.ReplaceAll(s, "<", "&lt;")
 	s = strings.ReplaceAll(s, ">", "&gt;")
 	return s
+}
+
+// parseToolSteps extracts tool steps from SKILL.md content.
+// Looks for lines matching: "N. [parallel|serial] action1 | action2"
+// Example:
+//
+//	1. [parallel] read_file {skill_path} | read_file ~/.picoclaw/config.json
+//	2. [serial] edit_file ~/.picoclaw/config.json
+func parseToolSteps(content string) []ToolStep {
+	// Normalize line endings
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+
+	matches := reToolStep.FindAllStringSubmatch(content, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+
+	steps := make([]ToolStep, 0, len(matches))
+	for i, m := range matches {
+		mode := m[1]
+		actionsStr := m[2]
+		actions := strings.Split(actionsStr, "|")
+		cleaned := make([]string, 0, len(actions))
+		for _, a := range actions {
+			a = strings.TrimSpace(a)
+			if a != "" {
+				cleaned = append(cleaned, a)
+			}
+		}
+		if len(cleaned) > 0 {
+			steps = append(steps, ToolStep{
+				Step:    i + 1,
+				Mode:    mode,
+				Actions: cleaned,
+			})
+		}
+	}
+	return steps
+}
+
+// MatchSkillByMessage finds the best matching skill for a user message
+// using keyword overlap with skill descriptions. No LLM needed.
+// Only returns skills that have ToolSteps defined.
+func (sl *SkillsLoader) MatchSkillByMessage(message string) *SkillInfo {
+	msg := strings.ToLower(message)
+	skills := sl.ListSkills()
+
+	var bestMatch *SkillInfo
+	bestScore := 0
+
+	for i := range skills {
+		s := &skills[i]
+		if len(s.ToolSteps) == 0 {
+			continue // Skip skills without tool_steps
+		}
+
+		score := 0
+		desc := strings.ToLower(s.Description)
+
+		// Extract keywords from description
+		keywords := reKeywordSplit.Split(desc, -1)
+		for _, kw := range keywords {
+			kw = strings.TrimSpace(kw)
+			if len(kw) >= 2 && strings.Contains(msg, kw) {
+				score++
+			}
+		}
+
+		if score > bestScore {
+			bestScore = score
+			match := skills[i] // copy
+			bestMatch = &match
+		}
+	}
+
+	if bestMatch != nil {
+		logger.DebugCF("skills", "Matched skill by keywords",
+			map[string]any{
+				"skill":      bestMatch.Name,
+				"score":      bestScore,
+				"tool_steps": len(bestMatch.ToolSteps),
+			})
+	}
+	return bestMatch
 }

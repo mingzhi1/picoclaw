@@ -53,11 +53,11 @@ func TestTurnStore_QueryByScore(t *testing.T) {
 	defer store.Close()
 
 	now := time.Now().Unix()
-	store.Insert(TurnRecord{ID: "s-1", Ts: now, Score: 3, UserMsg: "a", Reply: "b", Status: "pending"})
-	store.Insert(TurnRecord{ID: "s-2", Ts: now + 1, Score: 8, UserMsg: "c", Reply: "d", Status: "pending"})
-	store.Insert(TurnRecord{ID: "s-3", Ts: now + 2, Score: 9, UserMsg: "e", Reply: "f", Status: "pending"})
+	store.Insert(TurnRecord{ID: "s-1", Ts: now, ChannelKey: "cli:test", Score: 3, UserMsg: "a", Reply: "b", Status: "pending"})
+	store.Insert(TurnRecord{ID: "s-2", Ts: now + 1, ChannelKey: "cli:test", Score: 8, UserMsg: "c", Reply: "d", Status: "pending"})
+	store.Insert(TurnRecord{ID: "s-3", Ts: now + 2, ChannelKey: "cli:test", Score: 9, UserMsg: "e", Reply: "f", Status: "pending"})
 
-	high, err := store.QueryByScore(7)
+	high, err := store.QueryByScore("cli:test", 7)
 	if err != nil {
 		t.Fatalf("QueryByScore: %v", err)
 	}
@@ -129,11 +129,11 @@ func TestTurnStore_QueryByTags(t *testing.T) {
 	defer store.Close()
 
 	now := time.Now().Unix()
-	store.Insert(TurnRecord{ID: "tag-1", Ts: now, Score: 5, Tags: []string{"deploy", "ci"}, UserMsg: "a", Reply: "b"})
-	store.Insert(TurnRecord{ID: "tag-2", Ts: now + 1, Score: 4, Tags: []string{"file", "read"}, UserMsg: "c", Reply: "d"})
-	store.Insert(TurnRecord{ID: "tag-3", Ts: now + 2, Score: 3, Tags: []string{"deploy", "log"}, UserMsg: "e", Reply: "f"})
+	store.Insert(TurnRecord{ID: "tag-1", Ts: now, ChannelKey: "cli:test", Score: 5, Tags: []string{"deploy", "ci"}, UserMsg: "a", Reply: "b"})
+	store.Insert(TurnRecord{ID: "tag-2", Ts: now + 1, ChannelKey: "cli:test", Score: 4, Tags: []string{"file", "read"}, UserMsg: "c", Reply: "d"})
+	store.Insert(TurnRecord{ID: "tag-3", Ts: now + 2, ChannelKey: "cli:test", Score: 3, Tags: []string{"deploy", "log"}, UserMsg: "e", Reply: "f"})
 
-	rows, err := store.QueryByTags([]string{"deploy"})
+	rows, err := store.QueryByTags("cli:test", []string{"deploy"})
 	if err != nil {
 		t.Fatalf("QueryByTags: %v", err)
 	}

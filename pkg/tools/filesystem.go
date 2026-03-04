@@ -429,15 +429,55 @@ func (w *whitelistFs) ReadDir(path string) ([]os.DirEntry, error) {
 
 // buildFs returns the appropriate fileSystem implementation based on restriction
 // settings and optional path whitelist patterns.
+// All returned implementations are wrapped with tildeExpandFs to support ~ paths.
 func buildFs(workspace string, restrict bool, patterns []*regexp.Regexp) fileSystem {
+	var base fileSystem
 	if !restrict {
-		return &hostFs{}
+		base = &hostFs{}
+	} else {
+		sandbox := &sandboxFs{workspace: workspace}
+		if len(patterns) > 0 {
+			base = &whitelistFs{sandbox: sandbox, patterns: patterns}
+		} else {
+			base = sandbox
+		}
 	}
-	sandbox := &sandboxFs{workspace: workspace}
-	if len(patterns) > 0 {
-		return &whitelistFs{sandbox: sandbox, patterns: patterns}
+	return &tildeExpandFs{inner: base}
+}
+
+// expandTilde expands ~ or ~/ at the start of a path to the user's home directory.
+// Returns the path unchanged if it doesn't start with ~.
+func expandTilde(path string) string {
+	if path == "~" || strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~\\") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path // can't expand, return as-is
+		}
+		if path == "~" {
+			return home
+		}
+		return filepath.Join(home, path[2:])
 	}
-	return sandbox
+	return path
+}
+
+// tildeExpandFs is a transparent decorator that expands ~ in paths before
+// delegating to the inner fileSystem. This allows all file tools to accept
+// paths like ~/.picoclaw/config.json without each tool handling ~ separately.
+type tildeExpandFs struct {
+	inner fileSystem
+}
+
+func (t *tildeExpandFs) ReadFile(path string) ([]byte, error) {
+	return t.inner.ReadFile(expandTilde(path))
+}
+
+func (t *tildeExpandFs) WriteFile(path string, data []byte) error {
+	return t.inner.WriteFile(expandTilde(path), data)
+}
+
+func (t *tildeExpandFs) ReadDir(path string) ([]os.DirEntry, error) {
+	return t.inner.ReadDir(expandTilde(path))
 }
 
 // Helper to get a safe relative path for os.Root usage

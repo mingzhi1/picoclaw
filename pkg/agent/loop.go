@@ -323,15 +323,20 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				}
 
 				if response != "" {
-					// Check if the message tool already sent a response during this round.
+					// Check if ANY agent's message tool already sent a response during this round.
 					// If so, skip publishing to avoid duplicate messages to the user.
-					// Use default agent's tools to check (message tool is shared).
+					// Must check all agents, not just default, because the message may have
+					// been routed to a non-default agent.
 					alreadySent := false
-					defaultAgent := al.registry.GetDefaultAgent()
-					if defaultAgent != nil {
-						if tool, ok := defaultAgent.Tools.Get("message"); ok {
-							if mt, ok := tool.(*tools.MessageTool); ok {
-								alreadySent = mt.HasSentInRound()
+					for _, agentID := range al.registry.ListAgentIDs() {
+						if a, ok := al.registry.GetAgent(agentID); ok {
+							if tool, ok := a.Tools.Get("message"); ok {
+								if mt, ok := tool.(*tools.MessageTool); ok {
+									if mt.HasSentInRound() {
+										alreadySent = true
+										break
+									}
+								}
 							}
 						}
 					}
@@ -706,6 +711,18 @@ func (al *AgentLoop) runAgentLoop(
 			systemPrompt += "\n\n---\n\n## Thinking Strategy\n\n" + analyseResult.CotPrompt
 		}
 
+		// Match skill by keywords and inject tool execution plan (no LLM needed).
+		if matched := agent.ContextBuilder.MatchSkillByMessage(opts.UserMessage); matched != nil {
+			if plan := FormatToolSteps(matched.ToolSteps, matched.Path); plan != "" {
+				systemPrompt += "\n\n---\n\n" + plan
+				logger.InfoCF("agent", "Injected tool execution plan from skill",
+					map[string]any{
+						"skill":      matched.Name,
+						"steps":      len(matched.ToolSteps),
+						"skill_path": matched.Path,
+					})
+			}
+		}
 		// Select relevant turns from TurnStore.
 		cfg := DefaultInstantMemoryCfg(agent.ContextWindow)
 		instantTurns := BuildInstantMemory(al.turnStore, analyseResult.Tags, channelKey, cfg)

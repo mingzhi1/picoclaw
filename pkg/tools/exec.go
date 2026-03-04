@@ -192,6 +192,23 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]any) *ToolResult
 		}
 	}
 
+	// Fast path: try Go built-in commands before spawning a system shell.
+	// Only when workspace restriction is off — restricted mode needs guardCommand
+	// to enforce path security on command arguments.
+	if !t.restrictToWorkspace {
+		if baseCmd, cmdArgs, ok := parseSimpleCommand(command); ok {
+			if handler, found := BuiltinCmds[strings.ToLower(baseCmd)]; found {
+				output := handler(cmdArgs, cwd)
+				if output == "" {
+					output = "(no output)"
+				}
+				// Built-in commands signal errors by prefixing output with "cmdname: "
+				isErr := strings.HasPrefix(output, strings.ToLower(baseCmd)+":")
+				return &ToolResult{ForLLM: output, ForUser: output, IsError: isErr}
+			}
+		}
+	}
+
 	if guardError := t.guardCommand(command, cwd); guardError != "" {
 		return ErrorResult(guardError)
 	}
@@ -375,4 +392,52 @@ func (t *ExecTool) SetAllowPatterns(patterns []string) error {
 		t.allowPatterns = append(t.allowPatterns, re)
 	}
 	return nil
+}
+
+// parseSimpleCommand tries to parse a command string into baseCmd and args.
+// Returns false if the command contains shell metacharacters (pipes, redirects,
+// chains, subshells) that require a real shell to handle.
+func parseSimpleCommand(command string) (baseCmd string, args []string, ok bool) {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return "", nil, false
+	}
+
+	// Bail out for anything that needs a real shell.
+	for _, meta := range []string{"|", "&&", "||", ";", ">", "<", "$(", "${", "`"} {
+		if strings.Contains(command, meta) {
+			return "", nil, false
+		}
+	}
+
+	// Simple tokenizer: split on whitespace, respecting single/double quotes.
+	var tokens []string
+	var current strings.Builder
+	inSingle, inDouble := false, false
+
+	for i := 0; i < len(command); i++ {
+		ch := command[i]
+		switch {
+		case ch == '\'' && !inDouble:
+			inSingle = !inSingle
+		case ch == '"' && !inSingle:
+			inDouble = !inDouble
+		case (ch == ' ' || ch == '\t') && !inSingle && !inDouble:
+			if current.Len() > 0 {
+				tokens = append(tokens, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteByte(ch)
+		}
+	}
+	if current.Len() > 0 {
+		tokens = append(tokens, current.String())
+	}
+
+	if len(tokens) == 0 {
+		return "", nil, false
+	}
+
+	return tokens[0], tokens[1:], true
 }

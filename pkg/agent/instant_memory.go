@@ -69,17 +69,17 @@ func BuildInstantMemory(
 		}
 	}
 
-	// 1. always_keep: high-score turns.
-	high, err := store.QueryByScore(cfg.HighScoreThreshold)
+	// 1. always_keep: high-score turns (scoped to this channel).
+	high, err := store.QueryByScore(channelKey, cfg.HighScoreThreshold)
 	if err != nil {
 		logger.WarnCF("instant_memory", "QueryByScore failed", map[string]any{"error": err.Error()})
 	} else {
 		addUnique(high)
 	}
 
-	// 2. tag-matched turns (score > 0).
+	// 2. tag-matched turns (score > 0, scoped to this channel).
 	if len(currentTags) > 0 {
-		tagged, err := store.QueryByTags(currentTags)
+		tagged, err := store.QueryByTags(channelKey, currentTags)
 		if err != nil {
 			logger.WarnCF("instant_memory", "QueryByTags failed", map[string]any{"error": err.Error()})
 		} else {

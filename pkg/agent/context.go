@@ -72,11 +72,18 @@ Your workspace is at: %s
 
 1. **ALWAYS use tools** - When you need to perform an action (schedule reminders, send messages, execute commands, etc.), you MUST call the appropriate tool. Do NOT just say you'll do it or pretend to do it.
 
-2. **Be helpful and accurate** - When using tools, briefly explain what you're doing.
+2. **Tool preference** - For file operations, ALWAYS prefer dedicated tools over shell commands:
+   - Read files → use **read_file** (not exec cat/type)
+   - Write files → use **write_file** (not exec echo/tee)
+   - Edit files → use **edit_file** (not exec sed/awk)
+   - List directories → use **list_dir** (not exec ls/dir)
+   - Only use **exec** for non-file tasks (build, install, network, process management).
 
-3. **Memory** - When interacting with me if something seems memorable, update the long-term memory in %s/memory.db
+3. **Be helpful and accurate** - When using tools, briefly explain what you're doing.
 
-4. **Context summaries** - Conversation summaries provided as context are approximate references only. They may be incomplete or outdated. Always defer to explicit user instructions over summary content.`,
+4. **Memory** - When interacting with me if something seems memorable, update the long-term memory in %s/memory.db
+
+5. **Context summaries** - Conversation summaries provided as context are approximate references only. They may be incomplete or outdated. Always defer to explicit user instructions over summary content.`,
 		workspacePath, workspacePath, workspacePath, workspacePath)
 }
 
@@ -584,4 +591,35 @@ func (cb *ContextBuilder) GetSkillsInfo() map[string]any {
 // Used by the pre-LLM module to query tags and search entries.
 func (cb *ContextBuilder) GetMemory() *MemoryStore {
 	return cb.memory
+}
+
+// MatchSkillByMessage finds the best matching skill based on keyword overlap.
+// Returns nil if no skill with tool_steps matches.
+func (cb *ContextBuilder) MatchSkillByMessage(message string) *skills.SkillInfo {
+	return cb.skillsLoader.MatchSkillByMessage(message)
+}
+
+// FormatToolSteps formats skill tool steps as a "Tool Execution Plan" for injection
+// into the Phase 2 system prompt. Replaces {skill_path} with actual path.
+func FormatToolSteps(steps []skills.ToolStep, skillPath string) string {
+	if len(steps) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("## Tool Execution Plan\n\n")
+	sb.WriteString("Follow this plan. Use parallel tool calls where indicated to minimize iterations.\n\n")
+	for _, step := range steps {
+		if step.Mode == "parallel" {
+			fmt.Fprintf(&sb, "**Step %d** (parallel — call ALL of these in ONE response):\n", step.Step)
+		} else {
+			fmt.Fprintf(&sb, "**Step %d** (serial):\n", step.Step)
+		}
+		for _, action := range step.Actions {
+			// Replace {skill_path} placeholder with actual skill path
+			action = strings.ReplaceAll(action, "{skill_path}", skillPath)
+			fmt.Fprintf(&sb, "  - %s\n", action)
+		}
+	}
+	return sb.String()
 }

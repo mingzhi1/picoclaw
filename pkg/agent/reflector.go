@@ -13,10 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"os"
-
 	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/shell"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/tools"
@@ -87,7 +84,7 @@ type Reflector struct {
 	commands       map[string]CommandDef
 	mu             sync.RWMutex
 	timeout        time.Duration
-	toolRegistry   *tools.ToolRegistry    // For /shell command
+	shellInstance  *tools.ShellInstance   // Consolidated shell execution
 	agentRegistry  *AgentRegistry         // For /show, /list, /switch
 	channelManager *channels.Manager      // For /list channels, /switch channel
 }
@@ -178,11 +175,17 @@ func (r *Reflector) RegisterCommand(cmd CommandDef) {
 	r.commands[cmd.Name] = cmd
 }
 
-// SetTools sets the tool registry for /shell command support.
+// SetTools extracts the ExecTool from the registry and creates a ShellInstance.
 func (r *Reflector) SetTools(registry *tools.ToolRegistry) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.toolRegistry = registry
+	var execTool *tools.ExecTool
+	if tool, ok := registry.Get("exec"); ok {
+		execTool, _ = tool.(*tools.ExecTool)
+	}
+	var workspace string
+	// Best-effort: no workspace needed since ExecTool already has one.
+	r.shellInstance = tools.NewShellInstance(execTool, workspace)
 }
 
 // SetAgentInfo provides the Runtime with agent and channel references
@@ -618,81 +621,15 @@ func (r *Reflector) cmdRuntimeStatus(args []string, memory *MemoryStore) string 
 
 // --- /shell -----------------------------------------------------------------
 
-const shellMaxOutput = 4000
-
-// shellDenySubstrings blocks injection attempts for dev tool passthrough.
-var shellDenySubstrings = []string{
-	"| sh", "| bash", "| powershell", "| cmd",
-	"; rm ", "; del ", "&& rm ", "&& del ",
-	"$(", "${", "`",
-	"> /dev/", ">> /dev/",
-}
-
 func (r *Reflector) cmdShell(args []string, _ *MemoryStore) string {
-	if len(args) == 0 {
-		return "Usage: /shell <command> [args...]\n" +
-			"  Built-in: ls, cat, head, tail, grep, wc, find, diff, tree, stat, pwd, echo\n" +
-			"  Dev tools (passthrough): go, git, node, python, npm, cargo, make\n" +
-			"  File ops: touch, mkdir, cp, mv"
+	r.mu.RLock()
+	si := r.shellInstance
+	r.mu.RUnlock()
+
+	if si == nil {
+		return "⚠️ Shell not available"
 	}
-
-	baseCmd := strings.ToLower(args[0])
-	cmdArgs := args[1:]
-
-	// 1. Try built-in Go implementation (cross-platform).
-	if handler, ok := shell.BuiltinCmds[baseCmd]; ok {
-		cwd, _ := os.Getwd()
-		output := handler(cmdArgs, cwd)
-		return shellFormatOutput(output)
-	}
-
-	// 2. Try dev tool passthrough via ExecTool.
-	if shell.DevToolPassthrough[baseCmd] {
-		// Injection check.
-		command := strings.Join(args, " ")
-		cmdLower := strings.ToLower(command)
-		for _, deny := range shellDenySubstrings {
-			if strings.Contains(cmdLower, deny) {
-				return fmt.Sprintf("❌ Command blocked: restricted pattern '%s'", deny)
-			}
-		}
-
-		r.mu.RLock()
-		registry := r.toolRegistry
-		r.mu.RUnlock()
-
-		if registry == nil {
-			return "⚠️ Dev tool passthrough not available (no tool registry)"
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		result := registry.Execute(ctx, "exec", map[string]any{
-			"command": command,
-		})
-
-		if result.IsError || result.Err != nil {
-			errMsg := result.ForLLM
-			if errMsg == "" && result.Err != nil {
-				errMsg = result.Err.Error()
-			}
-			return fmt.Sprintf("❌ %s", errMsg)
-		}
-		return shellFormatOutput(result.ForLLM)
-	}
-
-	return fmt.Sprintf("❌ Unknown command '%s'. Use /shell for available commands.", baseCmd)
-}
-
-func shellFormatOutput(output string) string {
-	if output == "" {
-		return "✅ (no output)"
-	}
-	if len(output) > shellMaxOutput {
-		output = output[:shellMaxOutput] + fmt.Sprintf("\n... (truncated, %d chars total)", len(output))
-	}
-	return "```\n" + output + "\n```"
+	return si.Execute(args)
 }
 // --- /show ------------------------------------------------------------------
 
