@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/caarlos0/env/v11"
+	"github.com/tidwall/jsonc"
 
 	"github.com/sipeed/picoclaw/pkg/infra/utils"
 )
@@ -759,7 +760,7 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.ModelList = nil
 	}
 
-	if err := json.Unmarshal(data, cfg); err != nil {
+	if err := json.Unmarshal(jsonc.ToJSON(data), cfg); err != nil {
 		return nil, err
 	}
 
@@ -786,7 +787,7 @@ func hasUserModelList(data []byte) bool {
 	var probe struct {
 		ModelList []json.RawMessage `json:"model_list"`
 	}
-	_ = json.Unmarshal(data, &probe)
+	_ = json.Unmarshal(jsonc.ToJSON(data), &probe)
 	return len(probe.ModelList) > 0
 }
 
