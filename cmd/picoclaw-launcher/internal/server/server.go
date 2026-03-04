@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/llm/auth"
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/infra/config"
 )
 
 const DefaultPort = "18800"

@@ -10,7 +10,7 @@ import (
 	"github.com/rivo/tview"
 
 	configstore "github.com/sipeed/picoclaw/cmd/picoclaw-launcher-tui/internal/config"
-	picoclawconfig "github.com/sipeed/picoclaw/pkg/config"
+	picoclawconfig "github.com/sipeed/picoclaw/pkg/infra/config"
 )
 
 type appState struct {

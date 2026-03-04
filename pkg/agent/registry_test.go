@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/infra/config"
 	"github.com/sipeed/picoclaw/pkg/llm/providers"
 )
 

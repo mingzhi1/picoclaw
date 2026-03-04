@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/infra/config"
 )
 
 func TestExtractProtocol(t *testing.T) {

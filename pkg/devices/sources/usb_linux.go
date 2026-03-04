@@ -11,7 +11,7 @@ import (
 	"sync"
 
 	"github.com/sipeed/picoclaw/pkg/devices/events"
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/infra/logger"
 )
 
 var usbClassToCapability = map[string]string{

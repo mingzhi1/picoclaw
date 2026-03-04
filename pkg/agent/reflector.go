@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/llm/providers"
 	"github.com/sipeed/picoclaw/pkg/tools"
 )

@@ -7,7 +7,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/core/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/infra/config"
 )
 
 // NewWhatsAppNativeChannel returns an error when the binary was not built with -tags whatsapp_native.

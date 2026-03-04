@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/sipeed/picoclaw/pkg/core/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/infra/config"
 )
 
 func TestNewWeComAIBotChannel(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/infra/logger"
 )
 
 // CotTemplate represents a Chain-of-Thought prompting template.

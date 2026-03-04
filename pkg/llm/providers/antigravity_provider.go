@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/llm/auth"
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/infra/logger"
 )
 
 const (

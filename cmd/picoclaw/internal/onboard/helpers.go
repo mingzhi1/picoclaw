@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/infra/config"
 )
 
 func onboard() {

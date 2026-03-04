@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/sipeed/picoclaw/pkg/core/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/infra/config"
 )
 
 // ChannelFactory is a constructor function that creates a Channel from config and message bus.

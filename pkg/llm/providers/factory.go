@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/sipeed/picoclaw/pkg/llm/auth"
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/infra/config"
 )
 
 const defaultAnthropicAPIBase = "https://api.anthropic.com/v1"

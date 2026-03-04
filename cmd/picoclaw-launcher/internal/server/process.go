@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/infra/config"
 )
 
 // gatewayLogs stores captured stdout/stderr from the gateway process launched by the launcher.
