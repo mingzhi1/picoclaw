@@ -8,7 +8,7 @@ import (
 
 	"github.com/caarlos0/env/v11"
 
-	"github.com/sipeed/picoclaw/pkg/infra/fileutil"
+	"github.com/sipeed/picoclaw/pkg/infra/utils"
 )
 
 // rrCounter is a global counter for round-robin load balancing across models.
@@ -810,7 +810,7 @@ func SaveConfig(path string, cfg *Config) error {
 	}
 
 	// Use unified atomic write utility with explicit sync for flash storage reliability.
-	return fileutil.WriteFileAtomic(path, data, 0o600)
+	return utils.WriteFileAtomic(path, data, 0o600)
 }
 
 func (c *Config) WorkspacePath() string {

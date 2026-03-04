@@ -9,10 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/infra/fileutil"
+	"github.com/sipeed/picoclaw/pkg/infra/utils"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/skills"
-	"github.com/sipeed/picoclaw/pkg/infra/utils"
 )
 
 // InstallSkillTool allows the LLM agent to install skills from registries.
@@ -199,5 +198,5 @@ func writeOriginMeta(targetDir, registryName, slug, version string) error {
 	}
 
 	// Use unified atomic write utility with explicit sync for flash storage reliability.
-	return fileutil.WriteFileAtomic(filepath.Join(targetDir, ".skill-origin.json"), data, 0o600)
+	return utils.WriteFileAtomic(filepath.Join(targetDir, ".skill-origin.json"), data, 0o600)
 }
