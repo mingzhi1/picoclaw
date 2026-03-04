@@ -12,8 +12,11 @@ import (
 )
 
 type ToolRegistry struct {
-	tools map[string]Tool
-	mu    sync.RWMutex
+	tools            map[string]Tool
+	mu               sync.RWMutex
+	cachedNames      []string                    // lazily built, invalidated on Register
+	cachedDefs       []map[string]any            // lazily built, invalidated on Register
+	cachedProvider   []providers.ToolDefinition  // lazily built, invalidated on Register
 }
 
 func NewToolRegistry() *ToolRegistry {
@@ -31,6 +34,10 @@ func (r *ToolRegistry) Register(tool Tool) {
 			map[string]any{"name": name})
 	}
 	r.tools[name] = tool
+	// Invalidate caches.
+	r.cachedNames = nil
+	r.cachedDefs = nil
+	r.cachedProvider = nil
 }
 
 func (r *ToolRegistry) Get(name string) (Tool, bool) {
@@ -113,28 +120,29 @@ func (r *ToolRegistry) ExecuteWithContext(
 	return result
 }
 
-// sortedToolNames returns tool names in sorted order for deterministic iteration.
-// This is critical for KV cache stability: non-deterministic map iteration would
-// produce different system prompts and tool definitions on each call, invalidating
-// the LLM's prefix cache even when no tools have changed.
-func (r *ToolRegistry) sortedToolNames() []string {
-	names := make([]string, 0, len(r.tools))
-	for name := range r.tools {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
 
 func (r *ToolRegistry) GetDefinitions() []map[string]any {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
+	if r.cachedDefs != nil {
+		out := r.cachedDefs
+		r.mu.RUnlock()
+		return out
+	}
+	r.mu.RUnlock()
 
-	sorted := r.sortedToolNames()
+	// Build under write lock.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cachedDefs != nil {
+		return r.cachedDefs
+	}
+
+	sorted := r.sortedToolNamesLocked()
 	definitions := make([]map[string]any, 0, len(sorted))
 	for _, name := range sorted {
 		definitions = append(definitions, ToolToSchema(r.tools[name]))
 	}
+	r.cachedDefs = definitions
 	return definitions
 }
 
@@ -142,15 +150,26 @@ func (r *ToolRegistry) GetDefinitions() []map[string]any {
 // This is the format expected by LLM provider APIs.
 func (r *ToolRegistry) ToProviderDefs() []providers.ToolDefinition {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
+	if r.cachedProvider != nil {
+		out := r.cachedProvider
+		r.mu.RUnlock()
+		return out
+	}
+	r.mu.RUnlock()
 
-	sorted := r.sortedToolNames()
+	// Build under write lock.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cachedProvider != nil {
+		return r.cachedProvider
+	}
+
+	sorted := r.sortedToolNamesLocked()
 	definitions := make([]providers.ToolDefinition, 0, len(sorted))
 	for _, name := range sorted {
 		tool := r.tools[name]
 		schema := ToolToSchema(tool)
 
-		// Safely extract nested values with type checks
 		fn, ok := schema["function"].(map[string]any)
 		if !ok {
 			continue
@@ -169,6 +188,7 @@ func (r *ToolRegistry) ToProviderDefs() []providers.ToolDefinition {
 			},
 		})
 	}
+	r.cachedProvider = definitions
 	return definitions
 }
 
@@ -177,7 +197,21 @@ func (r *ToolRegistry) List() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	return r.sortedToolNames()
+	return r.sortedToolNamesLocked()
+}
+
+// sortedToolNamesLocked returns cached sorted names. Caller must hold mu.
+func (r *ToolRegistry) sortedToolNamesLocked() []string {
+	if r.cachedNames != nil {
+		return r.cachedNames
+	}
+	names := make([]string, 0, len(r.tools))
+	for name := range r.tools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	r.cachedNames = names
+	return names
 }
 
 // Count returns the number of registered tools.
@@ -193,7 +227,7 @@ func (r *ToolRegistry) GetSummaries() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	sorted := r.sortedToolNames()
+	sorted := r.sortedToolNamesLocked()
 	summaries := make([]string, 0, len(sorted))
 	for _, name := range sorted {
 		tool := r.tools[name]

@@ -65,10 +65,17 @@ CREATE TABLE IF NOT EXISTS daily_notes (
 CREATE TABLE IF NOT EXISTS memory_entries (
 	id         INTEGER PRIMARY KEY AUTOINCREMENT,
 	content    TEXT    NOT NULL,
-	tags       TEXT    NOT NULL DEFAULT '',  -- comma-separated, lowercase
+	tags       TEXT    NOT NULL DEFAULT '',  -- comma-separated (legacy, see memory_entry_tags)
 	created_at TEXT    NOT NULL DEFAULT (datetime('now')),
 	updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS memory_entry_tags (
+	entry_id INTEGER NOT NULL,
+	tag      TEXT    NOT NULL,
+	PRIMARY KEY (tag, entry_id)
+);
+CREATE INDEX IF NOT EXISTS idx_met_entry ON memory_entry_tags(entry_id);
 
 CREATE TABLE IF NOT EXISTS cot_usage (
 	id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,6 +100,7 @@ CREATE TABLE IF NOT EXISTS cot_usage (
 
 	// Migrate from legacy file-based storage if memory.db was just created.
 	ms.migrateFromFiles()
+	ms.migrateEntryTags()
 
 	return ms
 }
@@ -188,24 +196,29 @@ func (ms *MemoryStore) GetRecentDailyNotes(days int) string {
 		return ""
 	}
 
+	cutoff := time.Now().AddDate(0, 0, -(days - 1)).Format("20060102")
+	rows, err := ms.db.Query(
+		"SELECT content FROM daily_notes WHERE day >= ? ORDER BY day DESC",
+		cutoff,
+	)
+	if err != nil {
+		return ""
+	}
+	defer rows.Close()
+
 	var sb strings.Builder
 	first := true
-
-	for i := range days {
-		date := time.Now().AddDate(0, 0, -i)
-		key := date.Format("20060102")
-
+	for rows.Next() {
 		var content string
-		err := ms.db.QueryRow("SELECT content FROM daily_notes WHERE day = ?", key).Scan(&content)
-		if err == nil && content != "" {
-			if !first {
-				sb.WriteString("\n\n---\n\n")
-			}
-			sb.WriteString(content)
-			first = false
+		if err := rows.Scan(&content); err != nil || content == "" {
+			continue
 		}
+		if !first {
+			sb.WriteString("\n\n---\n\n")
+		}
+		sb.WriteString(content)
+		first = false
 	}
-
 	return sb.String()
 }
 
@@ -258,14 +271,36 @@ func (ms *MemoryStore) AddEntry(content string, tags []string) (int64, error) {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 
-	res, err := ms.db.Exec(
+	normTags := normaliseTags(tags)
+
+	tx, err := ms.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	res, err := tx.Exec(
 		"INSERT INTO memory_entries (content, tags) VALUES (?, ?)",
-		content, joinTags(tags),
+		content, strings.Join(normTags, ","),
 	)
 	if err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+
+	for _, tag := range normTags {
+		if _, err := tx.Exec(
+			"INSERT OR IGNORE INTO memory_entry_tags (entry_id, tag) VALUES (?, ?)",
+			id, tag,
+		); err != nil {
+			return 0, err
+		}
+	}
+
+	return id, tx.Commit()
 }
 
 // UpdateEntry updates the content and tags of an existing entry.
@@ -276,11 +311,34 @@ func (ms *MemoryStore) UpdateEntry(id int64, content string, tags []string) erro
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 
-	_, err := ms.db.Exec(
+	normTags := normaliseTags(tags)
+
+	tx, err := ms.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	if _, err := tx.Exec(
 		"UPDATE memory_entries SET content = ?, tags = ?, updated_at = datetime('now') WHERE id = ?",
-		content, joinTags(tags), id,
-	)
-	return err
+		content, strings.Join(normTags, ","), id,
+	); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec("DELETE FROM memory_entry_tags WHERE entry_id = ?", id); err != nil {
+		return err
+	}
+	for _, tag := range normTags {
+		if _, err := tx.Exec(
+			"INSERT OR IGNORE INTO memory_entry_tags (entry_id, tag) VALUES (?, ?)",
+			id, tag,
+		); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 // DeleteEntry removes a memory entry by ID.
@@ -291,8 +349,19 @@ func (ms *MemoryStore) DeleteEntry(id int64) error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 
-	_, err := ms.db.Exec("DELETE FROM memory_entries WHERE id = ?", id)
-	return err
+	tx, err := ms.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	if _, err := tx.Exec("DELETE FROM memory_entry_tags WHERE entry_id = ?", id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM memory_entries WHERE id = ?", id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // GetEntry retrieves a single memory entry by ID.
@@ -323,13 +392,13 @@ func (ms *MemoryStore) SearchByTag(tag string) ([]MemoryEntry, error) {
 		return nil, nil
 	}
 
-	// Match: exact tag as whole string, at start, at end, or in the middle.
-	// Pattern: tag OR tag,... OR ...,tag OR ...,tag,...
 	rows, err := ms.db.Query(
-		`SELECT id, content, tags, created_at, updated_at FROM memory_entries
-		 WHERE tags = ? OR tags LIKE ? OR tags LIKE ? OR tags LIKE ?
-		 ORDER BY updated_at DESC`,
-		tag, tag+",%", "%,"+tag, "%,"+tag+",%",
+		`SELECT e.id, e.content, e.tags, e.created_at, e.updated_at
+		 FROM memory_entry_tags t
+		 JOIN memory_entries e ON e.id = t.entry_id
+		 WHERE t.tag = ?
+		 ORDER BY e.updated_at DESC`,
+		tag,
 	)
 	if err != nil {
 		return nil, err
@@ -349,18 +418,23 @@ func (ms *MemoryStore) SearchByTags(tags []string) ([]MemoryEntry, error) {
 		return nil, nil
 	}
 
-	// Build WHERE clause: each tag must match.
-	conds := make([]string, 0, len(tags))
-	args := make([]any, 0, len(tags)*4)
-	for _, tag := range tags {
-		conds = append(conds,
-			"(tags = ? OR tags LIKE ? OR tags LIKE ? OR tags LIKE ?)")
-		args = append(args, tag, tag+",%", "%,"+tag, "%,"+tag+",%")
+	placeholders := make([]string, len(tags))
+	args := make([]any, len(tags)+1)
+	for i, tag := range tags {
+		placeholders[i] = "?"
+		args[i] = tag
 	}
+	args[len(tags)] = len(tags)
 
 	query := fmt.Sprintf(
-		"SELECT id, content, tags, created_at, updated_at FROM memory_entries WHERE %s ORDER BY updated_at DESC",
-		strings.Join(conds, " AND "),
+		`SELECT e.id, e.content, e.tags, e.created_at, e.updated_at
+		 FROM memory_entry_tags t
+		 JOIN memory_entries e ON e.id = t.entry_id
+		 WHERE t.tag IN (%s)
+		 GROUP BY e.id
+		 HAVING COUNT(DISTINCT t.tag) = ?
+		 ORDER BY e.updated_at DESC`,
+		strings.Join(placeholders, ", "),
 	)
 
 	rows, err := ms.db.Query(query, args...)
@@ -383,18 +457,20 @@ func (ms *MemoryStore) SearchByAnyTag(tags []string) ([]MemoryEntry, error) {
 		return nil, nil
 	}
 
-	// Build WHERE clause: any tag may match (OR).
-	conds := make([]string, 0, len(tags))
-	args := make([]any, 0, len(tags)*4)
-	for _, tag := range tags {
-		conds = append(conds,
-			"(tags = ? OR tags LIKE ? OR tags LIKE ? OR tags LIKE ?)")
-		args = append(args, tag, tag+",%", "%,"+tag, "%,"+tag+",%")
+	placeholders := make([]string, len(tags))
+	args := make([]any, len(tags))
+	for i, tag := range tags {
+		placeholders[i] = "?"
+		args[i] = tag
 	}
 
 	query := fmt.Sprintf(
-		"SELECT id, content, tags, created_at, updated_at FROM memory_entries WHERE %s ORDER BY updated_at DESC LIMIT 20",
-		strings.Join(conds, " OR "),
+		`SELECT DISTINCT e.id, e.content, e.tags, e.created_at, e.updated_at
+		 FROM memory_entry_tags t
+		 JOIN memory_entries e ON e.id = t.entry_id
+		 WHERE t.tag IN (%s)
+		 ORDER BY e.updated_at DESC LIMIT 20`,
+		strings.Join(placeholders, ", "),
 	)
 
 	rows, err := ms.db.Query(query, args...)
@@ -412,28 +488,21 @@ func (ms *MemoryStore) ListAllTags() ([]string, error) {
 		return nil, fmt.Errorf("memory DB not available")
 	}
 
-	rows, err := ms.db.Query("SELECT DISTINCT tags FROM memory_entries WHERE tags != ''")
+	rows, err := ms.db.Query("SELECT DISTINCT tag FROM memory_entry_tags ORDER BY tag")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	seen := make(map[string]struct{})
+	var result []string
 	for rows.Next() {
-		var tagsStr string
-		if err := rows.Scan(&tagsStr); err != nil {
+		var tag string
+		if err := rows.Scan(&tag); err != nil {
 			continue
 		}
-		for _, t := range splitTags(tagsStr) {
-			seen[t] = struct{}{}
-		}
+		result = append(result, tag)
 	}
-
-	result := make([]string, 0, len(seen))
-	for t := range seen {
-		result = append(result, t)
-	}
-	return result, nil
+	return result, rows.Err()
 }
 
 // ListEntries returns the most recent N entries (all tags), ordered newest first.
@@ -881,4 +950,59 @@ func (ms *MemoryStore) migrateFromFiles() {
 	} else {
 		logger.DebugCF("memory", "Legacy memory migrated and backed up", map[string]any{"backup": backupDir})
 	}
+}
+
+// migrateEntryTags populates memory_entry_tags from the legacy comma-separated
+// tags column. Runs once — skips if the junction table already has rows.
+func (ms *MemoryStore) migrateEntryTags() {
+	if ms.db == nil {
+		return
+	}
+
+	var count int
+	if err := ms.db.QueryRow("SELECT COUNT(*) FROM memory_entry_tags").Scan(&count); err != nil || count > 0 {
+		return
+	}
+
+	var entryCount int
+	if err := ms.db.QueryRow("SELECT COUNT(*) FROM memory_entries WHERE tags != ''").Scan(&entryCount); err != nil || entryCount == 0 {
+		return
+	}
+
+	logger.DebugCF("memory", "Migrating entry tags to junction table", map[string]any{"entries": entryCount})
+
+	rows, err := ms.db.Query("SELECT id, tags FROM memory_entries WHERE tags != ''")
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	tx, err := ms.db.Begin()
+	if err != nil {
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	migrated := 0
+	for rows.Next() {
+		var id int64
+		var tagsStr string
+		if err := rows.Scan(&id, &tagsStr); err != nil {
+			continue
+		}
+		for _, tag := range splitTags(tagsStr) {
+			tag = strings.ToLower(strings.TrimSpace(tag))
+			if tag == "" {
+				continue
+			}
+			tx.Exec("INSERT OR IGNORE INTO memory_entry_tags (entry_id, tag) VALUES (?, ?)", id, tag)
+			migrated++
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		logger.DebugCF("memory", "Failed to migrate entry tags", map[string]any{"error": err.Error()})
+		return
+	}
+	logger.DebugCF("memory", "Entry tags migrated", map[string]any{"tag_rows": migrated})
 }
