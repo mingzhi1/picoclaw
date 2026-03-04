@@ -1,6 +1,8 @@
 package routing
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sipeed/picoclaw/pkg/infra/config"
@@ -10,7 +12,7 @@ func testConfig(agents []config.AgentConfig, bindings []config.AgentBinding) *co
 	return &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
-				Workspace: "/tmp/picoclaw-test",
+				Workspace: filepath.Join(os.TempDir(), "picoclaw-test"),
 				Model:     "gpt-4",
 			},
 			List: agents,

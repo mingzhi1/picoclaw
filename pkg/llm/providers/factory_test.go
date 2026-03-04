@@ -1,6 +1,8 @@
 package providers
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -42,7 +44,7 @@ func TestResolveProviderSelection(t *testing.T) {
 			name: "explicit claude-cli provider routes to cli provider type",
 			setup: func(cfg *config.Config) {
 				cfg.Agents.Defaults.Provider = "claude-cli"
-				cfg.Agents.Defaults.Workspace = "/tmp/ws"
+				cfg.Agents.Defaults.Workspace = filepath.Join(os.TempDir(), "ws")
 			},
 			wantType: providerTypeClaudeCLI,
 		},
@@ -125,7 +127,7 @@ func TestResolveProviderSelection(t *testing.T) {
 			name: "explicit codex-code provider routes to codex cli provider type",
 			setup: func(cfg *config.Config) {
 				cfg.Agents.Defaults.Provider = "codex-code"
-				cfg.Agents.Defaults.Workspace = "/tmp/ws"
+				cfg.Agents.Defaults.Workspace = filepath.Join(os.TempDir(), "ws")
 			},
 			wantType: providerTypeCodexCLI,
 		},
@@ -244,7 +246,7 @@ func TestCreateProviderReturnsCodexCliProviderForCodexCode(t *testing.T) {
 		{
 			ModelName: "test-codex",
 			Model:     "codex-cli/codex-model",
-			Workspace: "/tmp/workspace",
+			Workspace: filepath.Join(os.TempDir(), "workspace"),
 		},
 	}
 
@@ -265,7 +267,7 @@ func TestCreateProviderReturnsClaudeCliProviderForClaudeCli(t *testing.T) {
 		{
 			ModelName: "test-claude-cli",
 			Model:     "claude-cli/claude-sonnet",
-			Workspace: "/tmp/workspace",
+			Workspace: filepath.Join(os.TempDir(), "workspace"),
 		},
 	}
 

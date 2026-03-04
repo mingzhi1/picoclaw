@@ -21,6 +21,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/core"
 	"github.com/sipeed/picoclaw/pkg/extension"
 	"github.com/sipeed/picoclaw/pkg/extension/devices"
+	"github.com/sipeed/picoclaw/pkg/extension/voice"
 	"github.com/sipeed/picoclaw/pkg/infra/kvcache"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/llm/mcp"
@@ -133,18 +134,39 @@ func NewAgentLoop(
 	if cfg.Devices.Enabled {
 		extMgr.Register(devices.New())
 	}
-	// Init extensions and inject their tools into all agents.
+	extMgr.Register(voice.New())
+
+	// Init extensions — each gets its own config map.
 	if defaultAgent != nil {
-		extCtx := extension.ExtensionContext{
+		sttCfg := resolveSttConfig(cfg)
+
+		devCtx := extension.ExtensionContext{
 			Workspace: defaultAgent.Workspace,
 			Config: map[string]any{
 				"enabled":     cfg.Devices.Enabled,
 				"monitor_usb": cfg.Devices.MonitorUSB,
+				"bus":         msgBus,
 			},
 		}
-		if err := extMgr.InitAll(extCtx); err != nil {
-			logger.WarnCF("agent", "Extension init error", map[string]any{"error": err.Error()})
+		voiceCtx := extension.ExtensionContext{
+			Workspace: defaultAgent.Workspace,
+			Config:    sttCfg,
 		}
+		extCtxByName := map[string]extension.ExtensionContext{
+			"devices": devCtx,
+			"voice":   voiceCtx,
+		}
+
+		for _, ext := range extMgr.List() {
+			ctx, ok := extCtxByName[ext]
+			if !ok {
+				ctx = extension.ExtensionContext{Workspace: defaultAgent.Workspace, Config: map[string]any{}}
+			}
+			if err := extMgr.InitOne(ext, ctx); err != nil {
+				logger.WarnCF("agent", "Extension init error", map[string]any{"name": ext, "error": err.Error()})
+			}
+		}
+
 		for _, tool := range extMgr.CollectTools() {
 			for _, aid := range registry.ListAgentIDs() {
 				if a, ok := registry.GetAgent(aid); ok {
@@ -1109,4 +1131,32 @@ func extractParentPeer(msg bus.InboundMessage) *routing.RoutePeer {
 func activeContextPath(workspace string) string {
 	return filepath.Join(workspace, "active_context.json")
 }
+
+// resolveSttConfig builds the config map for the voice extension by looking up
+// the stt_model entry in config.ModelList.
+// Returns a map suitable for extension.ExtensionContext.Config.
+// If stt_model is empty or not found, returns a map without api_base so the
+// voice extension gracefully disables itself.
+func resolveSttConfig(cfg *config.Config) map[string]any {
+	sttModel := cfg.Agents.Defaults.GetSTTModel()
+	result := map[string]any{
+		"stt_model": sttModel,
+	}
+	if sttModel == "" {
+		return result
+	}
+
+	mc, err := cfg.GetModelConfig(sttModel)
+	if err != nil {
+		logger.WarnCF("agent", "stt_model not found in model_list — STT disabled",
+			map[string]any{"stt_model": sttModel, "error": err.Error()})
+		return result
+	}
+
+	result["api_base"] = mc.APIBase
+	result["api_key"] = mc.APIKey
+	result["model"] = mc.Model
+	return result
+}
+
 

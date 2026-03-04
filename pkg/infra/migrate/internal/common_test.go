@@ -29,21 +29,27 @@ func TestExpandHomeWithTilde(t *testing.T) {
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
 
+	// "~/path" should expand to home + "path" joined with OS separator
 	result := ExpandHome("~/path")
-	assert.Equal(t, home+"/path", result)
+	assert.Equal(t, filepath.Join(home, "path"), result)
 
+	// "~" alone should expand to home
 	result = ExpandHome("~")
 	assert.Equal(t, home, result)
 }
 
 func TestResolveWorkspace(t *testing.T) {
-	result := ResolveWorkspace("/home/user/.picoclaw")
-	assert.Equal(t, "/home/user/.picoclaw/workspace", result)
+	base := filepath.Join("home", "user", ".picoclaw")
+	result := ResolveWorkspace(base)
+	assert.Equal(t, filepath.Join(base, "workspace"), result)
 }
 
 func TestRelPath(t *testing.T) {
-	result := RelPath("/home/user/.picoclaw/workspace/file.txt", "/home/user/.picoclaw")
-	assert.Equal(t, "workspace/file.txt", result)
+	// Use real temp dirs so the paths are valid on the current OS
+	base := t.TempDir()
+	file := filepath.Join(base, "workspace", "file.txt")
+	result := RelPath(file, base)
+	assert.Equal(t, filepath.Join("workspace", "file.txt"), result)
 }
 
 func TestRelPathError(t *testing.T) {

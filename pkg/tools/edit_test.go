@@ -189,7 +189,7 @@ func TestEditTool_EditFile_MissingOldText(t *testing.T) {
 	tool := NewEditFileTool("", false)
 	ctx := context.Background()
 	args := map[string]any{
-		"path":     "/tmp/test.txt",
+		"path":     filepath.Join(os.TempDir(), "test.txt"),
 		"new_text": "new",
 	}
 
@@ -206,7 +206,7 @@ func TestEditTool_EditFile_MissingNewText(t *testing.T) {
 	tool := NewEditFileTool("", false)
 	ctx := context.Background()
 	args := map[string]any{
-		"path":     "/tmp/test.txt",
+		"path":     filepath.Join(os.TempDir(), "test.txt"),
 		"old_text": "old",
 	}
 
@@ -283,7 +283,7 @@ func TestEditTool_AppendFile_MissingContent(t *testing.T) {
 	tool := NewAppendFileTool("", false)
 	ctx := context.Background()
 	args := map[string]any{
-		"path": "/tmp/test.txt",
+		"path": filepath.Join(os.TempDir(), "test.txt"),
 	}
 
 	result := tool.Execute(ctx, args)

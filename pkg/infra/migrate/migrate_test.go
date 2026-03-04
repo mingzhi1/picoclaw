@@ -80,7 +80,7 @@ func TestMigrateInstancePlanWithInvalidSource(t *testing.T) {
 		handlers: make(map[string]Operation),
 	}
 
-	_, _, err := instance.Plan(Options{}, "/tmp/source", "/tmp/target")
+	_, _, err := instance.Plan(Options{}, filepath.Join(os.TempDir(), "source"), filepath.Join(os.TempDir(), "target"))
 	require.Error(t, err)
 }
 
@@ -104,7 +104,7 @@ func TestMigrateInstancePlanConfigOnlyAndWorkspaceOnlyMutuallyExclusive(t *testi
 func TestMigrateInstancePlanRefreshSetsWorkspaceOnly(t *testing.T) {
 	opts := Options{
 		Refresh:    true,
-		SourceHome: "/tmp/nonexistent",
+		SourceHome: filepath.Join(os.TempDir(), "nonexistent"),
 	}
 	instance := NewMigrateInstance(opts)
 	require.NotNil(t, instance)
@@ -116,7 +116,7 @@ func TestMigrateInstancePlanRefreshSetsWorkspaceOnly(t *testing.T) {
 
 func TestMigrateInstancePlanSourceNotFound(t *testing.T) {
 	opts := Options{
-		SourceHome: "/tmp/nonexistent-source-home",
+		SourceHome: filepath.Join(os.TempDir(), "nonexistent-source-home"),
 	}
 	instance := NewMigrateInstance(opts)
 
@@ -263,8 +263,8 @@ func TestMigrateInstanceExecuteSkip(t *testing.T) {
 	actions := []Action{
 		{
 			Type:        ActionSkip,
-			Source:      "/tmp/source.txt",
-			Target:      "/tmp/target.txt",
+			Source:      filepath.Join(os.TempDir(), "source.txt"),
+			Target:      filepath.Join(os.TempDir(), "target.txt"),
 			Description: "skip file",
 		},
 	}
@@ -376,7 +376,7 @@ func (m *mockOperation) GetSourceHome() (string, error) {
 	if m.sourceHome != "" {
 		return m.sourceHome, nil
 	}
-	return "/tmp/mock", nil
+	return filepath.Join(os.TempDir(), "mock"), nil
 }
 
 func (m *mockOperation) GetSourceWorkspace() (string, error) {
@@ -386,14 +386,14 @@ func (m *mockOperation) GetSourceWorkspace() (string, error) {
 	if m.sourceHome != "" {
 		return filepath.Join(m.sourceHome, "workspace"), nil
 	}
-	return "/tmp/mock/workspace", nil
+	return filepath.Join(os.TempDir(), "mock", "workspace"), nil
 }
 
 func (m *mockOperation) GetSourceConfigFile() (string, error) {
 	if m.sourceConfig != "" {
 		return m.sourceConfig, nil
 	}
-	return "/tmp/mock/config.json", nil
+	return filepath.Join(os.TempDir(), "mock", "config.json"), nil
 }
 func (m *mockOperation) ExecuteConfigMigration(src, dst string) error { return nil }
 func (m *mockOperation) GetMigrateableFiles() []string {

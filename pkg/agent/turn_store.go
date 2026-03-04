@@ -60,6 +60,17 @@ CREATE INDEX IF NOT EXISTS idx_turns_status  ON turns(status);
 CREATE INDEX IF NOT EXISTS idx_turns_ts      ON turns(ts);
 CREATE INDEX IF NOT EXISTS idx_turns_channel ON turns(channel_key);
 CREATE INDEX IF NOT EXISTS idx_turns_score   ON turns(score);
+
+-- Inverted index: tag × channel → turn IDs.
+-- Replaces the slow JSON-LIKE scan in QueryByTags.
+CREATE TABLE IF NOT EXISTS turn_tags (
+    tag         TEXT    NOT NULL,
+    channel_key TEXT    NOT NULL,
+    turn_id     TEXT    NOT NULL,
+    ts          INTEGER NOT NULL,
+    PRIMARY KEY (tag, channel_key, turn_id)
+);
+CREATE INDEX IF NOT EXISTS idx_turn_tags_lookup ON turn_tags(tag, channel_key, ts);
 `
 
 // NewTurnStore creates (or opens) turns.db in the given workspace directory.
@@ -200,7 +211,13 @@ func (s *TurnStore) Insert(r TurnRecord) error {
 	tagsJSON := marshalJSON(r.Tags)
 	tcJSON := marshalJSON(r.ToolCalls)
 
-	_, err := s.db.Exec(`
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("turn_store: begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	_, err = tx.Exec(`
 		INSERT INTO turns (id, ts, channel_key, score, intent, tags, tokens, status, user_msg, reply, tool_calls)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO NOTHING`,
@@ -208,11 +225,30 @@ func (s *TurnStore) Insert(r TurnRecord) error {
 		tagsJSON, r.Tokens, r.Status, r.UserMsg, r.Reply, tcJSON,
 	)
 	if err != nil {
-		return fmt.Errorf("turn_store: insert %s: %w", r.ID, err)
+		return fmt.Errorf("turn_store: insert turn %s: %w", r.ID, err)
+	}
+
+	// Update inverted tag index.
+	for _, tag := range r.Tags {
+		tag = strings.ToLower(strings.TrimSpace(tag))
+		if tag == "" {
+			continue
+		}
+		_, err = tx.Exec(`
+			INSERT OR IGNORE INTO turn_tags (tag, channel_key, turn_id, ts)
+			VALUES (?, ?, ?, ?)`,
+			tag, r.ChannelKey, r.ID, r.Ts)
+		if err != nil {
+			return fmt.Errorf("turn_store: insert tag index %s/%s: %w", r.ID, tag, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("turn_store: commit %s: %w", r.ID, err)
 	}
 
 	logger.DebugCF("turn_store", "Turn inserted",
-		map[string]any{"id": r.ID, "score": r.Score, "tokens": r.Tokens, "status": r.Status})
+		map[string]any{"id": r.ID, "score": r.Score, "tokens": r.Tokens, "status": r.Status, "tags": len(r.Tags)})
 	return nil
 }
 
@@ -253,32 +289,48 @@ func (s *TurnStore) QueryByScore(channelKey string, highThreshold int) ([]TurnRe
 	return scanTurns(rows)
 }
 
-// QueryByTags returns turns whose tags JSON contains at least one of the given tags
-// and score > 0 for the given channelKey, ordered by ts ASC.
+// QueryByTags returns turns matching any of the given tags for the channelKey.
+// Uses the turn_tags inverted index — exact match, no full-table scan.
+// Returns non-archived turns with score > 0, ordered by ts ASC.
 func (s *TurnStore) QueryByTags(channelKey string, tags []string) ([]TurnRecord, error) {
 	if len(tags) == 0 {
 		return nil, nil
 	}
-	// Build LIKE conditions for simple JSON array matching.
-	conds := make([]string, 0, len(tags))
-	args := make([]any, 1, 1+len(tags)*2)
-	args[0] = channelKey
+
+	// Normalise and deduplicate tags.
+	seen := make(map[string]struct{}, len(tags))
+	placeholders := make([]string, 0, len(tags))
+	args := make([]any, 0, len(tags)+2)
 	for _, t := range tags {
 		t = strings.ToLower(strings.TrimSpace(t))
 		if t == "" {
 			continue
 		}
-		conds = append(conds, `(tags LIKE ? OR tags LIKE ?)`)
-		args = append(args, `%"`+t+`"%`, `%'`+t+`'%`)
+		if _, dup := seen[t]; dup {
+			continue
+		}
+		seen[t] = struct{}{}
+		placeholders = append(placeholders, "?")
+		args = append(args, t)
 	}
-	if len(conds) == 0 {
+	if len(placeholders) == 0 {
 		return nil, nil
 	}
+
+	// Append channelKey and score filter args.
+	args = append(args, channelKey, 0)
+
 	query := fmt.Sprintf(`
-		SELECT id, ts, channel_key, score, intent, tags, tokens, status, user_msg, reply, tool_calls
-		FROM turns
-		WHERE channel_key = ? AND score > 0 AND status != 'archived' AND (%s)
-		ORDER BY ts ASC`, strings.Join(conds, " OR "))
+		SELECT DISTINCT t.id, t.ts, t.channel_key, t.score, t.intent,
+		       t.tags, t.tokens, t.status, t.user_msg, t.reply, t.tool_calls
+		FROM turn_tags tt
+		JOIN turns t ON t.id = tt.turn_id
+		WHERE tt.tag IN (%s)
+		  AND tt.channel_key = ?
+		  AND t.score > ?
+		  AND t.status != 'archived'
+		ORDER BY t.ts ASC`,
+		strings.Join(placeholders, ", "))
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
@@ -286,6 +338,31 @@ func (s *TurnStore) QueryByTags(channelKey string, tags []string) ([]TurnRecord,
 	}
 	defer rows.Close()
 	return scanTurns(rows)
+}
+
+// QueryTagsForChannel returns all distinct tags that have at least one non-archived
+// turn for the given channelKey. Useful for building tag clouds or auto-suggestions.
+func (s *TurnStore) QueryTagsForChannel(channelKey string) ([]string, error) {
+	rows, err := s.db.Query(`
+		SELECT DISTINCT tt.tag
+		FROM turn_tags tt
+		JOIN turns t ON t.id = tt.turn_id
+		WHERE tt.channel_key = ? AND t.status != 'archived'
+		ORDER BY tt.tag ASC`, channelKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tags []string
+	for rows.Next() {
+		var tag string
+		if err := rows.Scan(&tag); err != nil {
+			return tags, err
+		}
+		tags = append(tags, tag)
+	}
+	return tags, rows.Err()
 }
 
 // QueryRecent returns the n most-recent non-archived turns for a channelKey,

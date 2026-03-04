@@ -382,6 +382,16 @@ func (t *ExecTool) SetRestrictToWorkspace(restrict bool) {
 	t.restrictToWorkspace = restrict
 }
 
+// WorkingDir returns the configured working directory.
+func (t *ExecTool) WorkingDir() string {
+	return t.workingDir
+}
+
+// RestrictToWorkspace returns whether workspace restriction is enabled.
+func (t *ExecTool) RestrictToWorkspace() bool {
+	return t.restrictToWorkspace
+}
+
 func (t *ExecTool) SetAllowPatterns(patterns []string) error {
 	t.allowPatterns = make([]*regexp.Regexp, 0, len(patterns))
 	for _, p := range patterns {

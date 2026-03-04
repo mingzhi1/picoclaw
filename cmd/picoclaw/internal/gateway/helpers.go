@@ -28,13 +28,11 @@ import (
 	_ "github.com/sipeed/picoclaw/pkg/channels/whatsapp_native"
 	"github.com/sipeed/picoclaw/pkg/infra/config"
 	"github.com/sipeed/picoclaw/pkg/infra/cron"
-	"github.com/sipeed/picoclaw/pkg/infra/devices"
 	"github.com/sipeed/picoclaw/pkg/infra/health"
 	"github.com/sipeed/picoclaw/pkg/infra/heartbeat"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/infra/media"
 	"github.com/sipeed/picoclaw/pkg/llm/providers"
-	"github.com/sipeed/picoclaw/pkg/core/state"
 	"github.com/sipeed/picoclaw/pkg/tools"
 )
 
@@ -119,7 +117,8 @@ func gatewayCmd(debug bool) error {
 		return tools.SilentResult(response)
 	})
 
-	// Create media store for file lifecycle management with TTL cleanup
+	// Media store: manages file lifecycle and TTL cleanup.
+	// Not an extension — always required, shared by channels and agent.
 	mediaStore := media.NewFileMediaStoreWithCleanup(media.MediaCleanerConfig{
 		Enabled:  cfg.Tools.MediaCleanup.Enabled,
 		MaxAge:   time.Duration(cfg.Tools.MediaCleanup.MaxAge) * time.Minute,
@@ -133,7 +132,7 @@ func gatewayCmd(debug bool) error {
 		return fmt.Errorf("error creating channel manager: %w", err)
 	}
 
-	// Inject channel manager and media store into agent loop
+	// Inject channel manager and media store into agent loop.
 	agentLoop.SetChannelManager(channelManager)
 	agentLoop.SetMediaStore(mediaStore)
 
@@ -160,17 +159,8 @@ func gatewayCmd(debug bool) error {
 	}
 	fmt.Println("✓ Heartbeat service started")
 
-	stateManager := state.NewManager(cfg.WorkspacePath())
-	deviceService := devices.NewService(devices.Config{
-		Enabled:    cfg.Devices.Enabled,
-		MonitorUSB: cfg.Devices.MonitorUSB,
-	}, stateManager)
-	deviceService.SetBus(msgBus)
-	if err := deviceService.Start(ctx); err != nil {
-		fmt.Printf("Error starting device service: %v\n", err)
-	} else if cfg.Devices.Enabled {
-		fmt.Println("✓ Device event service started")
-	}
+	// Device monitoring (I2C/SPI tools + USB hotplug) is now handled by
+	// the extension manager inside AgentLoop. See pkg/extension/devices/.
 
 	// Setup shared HTTP server with health endpoints and webhook handlers
 	healthServer := health.NewServer(cfg.Gateway.Host, cfg.Gateway.Port)
@@ -203,7 +193,6 @@ func gatewayCmd(debug bool) error {
 	defer shutdownCancel()
 
 	channelManager.StopAll(shutdownCtx)
-	deviceService.Stop()
 	heartbeatService.Stop()
 	cronService.Stop()
 	mediaStore.Stop()

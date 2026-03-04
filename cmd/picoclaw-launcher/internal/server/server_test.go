@@ -66,7 +66,7 @@ func TestGetConfig(t *testing.T) {
 
 func TestGetConfig_MissingFile_ReturnsDefault(t *testing.T) {
 	mux := http.NewServeMux()
-	RegisterConfigAPI(mux, "/tmp/nonexistent-picoclaw-launcher-test/config.json")
+	RegisterConfigAPI(mux, filepath.Join(os.TempDir(), "nonexistent-picoclaw-launcher-test", "config.json"))
 
 	req := httptest.NewRequest("GET", "/api/config", nil)
 	w := httptest.NewRecorder()

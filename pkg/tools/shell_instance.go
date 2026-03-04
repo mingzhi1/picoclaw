@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -14,14 +15,17 @@ import (
 type ShellInstance struct {
 	execTool  *ExecTool
 	workspace string
+	restrict  bool
 	maxOutput int
 }
 
 // NewShellInstance creates a ShellInstance backed by the given ExecTool.
-func NewShellInstance(execTool *ExecTool, workspace string) *ShellInstance {
+// When restrict is true, builtin commands are confined to the workspace.
+func NewShellInstance(execTool *ExecTool, workspace string, restrict bool) *ShellInstance {
 	return &ShellInstance{
 		execTool:  execTool,
 		workspace: workspace,
+		restrict:  restrict,
 		maxOutput: 4000,
 	}
 }
@@ -45,6 +49,15 @@ func (s *ShellInstance) Execute(args []string) string {
 		if cwd == "" {
 			cwd, _ = os.Getwd()
 		}
+
+		// When workspace restriction is active, validate that the builtin
+		// command arguments do not reference paths outside the workspace.
+		if s.restrict && s.workspace != "" {
+			if err := s.guardBuiltinArgs(baseCmd, cmdArgs); err != "" {
+				return s.formatOutput(err)
+			}
+		}
+
 		return s.formatOutput(handler(cmdArgs, cwd))
 	}
 
@@ -90,4 +103,27 @@ func (s *ShellInstance) formatOutput(output string) string {
 		output = output[:s.maxOutput] + fmt.Sprintf("\n... (truncated, %d chars total)", len(output))
 	}
 	return "```\n" + output + "\n```"
+}
+
+// guardBuiltinArgs checks that all path-like arguments of a builtin command
+// resolve to paths inside the workspace. Returns an error string if any
+// argument would escape the workspace; empty string means all OK.
+func (s *ShellInstance) guardBuiltinArgs(cmd string, args []string) string {
+	absWorkspace, err := filepath.Abs(s.workspace)
+	if err != nil {
+		return fmt.Sprintf("❌ %s: cannot resolve workspace: %v", cmd, err)
+	}
+
+	for _, arg := range args {
+		// Skip flags
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+
+		resolved := ResolvePath(arg, absWorkspace)
+		if !isWithinWorkspace(resolved, absWorkspace) {
+			return fmt.Sprintf("❌ %s: blocked — path '%s' is outside workspace", cmd, arg)
+		}
+	}
+	return ""
 }

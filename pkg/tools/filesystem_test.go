@@ -172,7 +172,7 @@ func TestFilesystemTool_WriteFile_MissingContent(t *testing.T) {
 	tool := NewWriteFileTool("", false)
 	ctx := context.Background()
 	args := map[string]any{
-		"path": "/tmp/test.txt",
+		"path": filepath.Join(os.TempDir(), "test.txt"),
 	}
 
 	result := tool.Execute(ctx, args)

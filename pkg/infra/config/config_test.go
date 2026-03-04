@@ -445,13 +445,17 @@ func TestDefaultConfig_DMScope(t *testing.T) {
 }
 
 func TestDefaultConfig_WorkspacePath_Default(t *testing.T) {
-	// Unset to ensure we test the default
+	// Unset PICOCLAW_HOME to ensure we test the default home-based path
 	t.Setenv("PICOCLAW_HOME", "")
-	// Set a known home for consistent test results
-	t.Setenv("HOME", "/tmp/home")
+
+	// Set a known home for consistent test results.
+	// Windows uses USERPROFILE; Unix uses HOME.
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("USERPROFILE", fakeHome)
 
 	cfg := DefaultConfig()
-	want := filepath.Join("/tmp/home", ".picoclaw", "workspace")
+	want := filepath.Join(fakeHome, ".picoclaw", "workspace")
 
 	if cfg.Agents.Defaults.Workspace != want {
 		t.Errorf("Default workspace path = %q, want %q", cfg.Agents.Defaults.Workspace, want)
@@ -459,10 +463,11 @@ func TestDefaultConfig_WorkspacePath_Default(t *testing.T) {
 }
 
 func TestDefaultConfig_WorkspacePath_WithPicoclawHome(t *testing.T) {
-	t.Setenv("PICOCLAW_HOME", "/custom/picoclaw/home")
+	const picoclawHome = "/custom/picoclaw/home"
+	t.Setenv("PICOCLAW_HOME", picoclawHome)
 
 	cfg := DefaultConfig()
-	want := "/custom/picoclaw/home/workspace"
+	want := filepath.Join(picoclawHome, "workspace")
 
 	if cfg.Agents.Defaults.Workspace != want {
 		t.Errorf("Workspace path with PICOCLAW_HOME = %q, want %q", cfg.Agents.Defaults.Workspace, want)

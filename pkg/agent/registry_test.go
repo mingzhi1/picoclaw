@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sipeed/picoclaw/pkg/infra/config"
@@ -28,7 +30,7 @@ func testCfg(agents []config.AgentConfig) *config.Config {
 	return &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
-				Workspace:         "/tmp/picoclaw-test-registry",
+				Workspace:         filepath.Join(os.TempDir(), "picoclaw-test-registry"),
 				Model:             "gpt-4",
 				MaxTokens:         8192,
 				MaxToolIterations: 10,

@@ -11,13 +11,16 @@ import (
 )
 
 func TestGetConfigPath(t *testing.T) {
-	t.Setenv("HOME", "/tmp/home")
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("USERPROFILE", fakeHome) // Windows uses USERPROFILE
 
 	got := GetConfigPath()
-	want := filepath.Join("/tmp/home", ".picoclaw", "config.json")
+	want := filepath.Join(fakeHome, ".picoclaw", "config.json")
 
 	assert.Equal(t, want, got)
 }
+
 
 func TestFormatVersion_NoGitCommit(t *testing.T) {
 	oldVersion, oldGit := version, gitCommit
@@ -97,11 +100,11 @@ func TestGetVersion(t *testing.T) {
 }
 
 func TestGetConfigPath_WithEnv(t *testing.T) {
-	t.Setenv("PICOCLAW_CONFIG", "/tmp/custom/config.json")
-	t.Setenv("HOME", "/tmp/home") // Also set home to ensure env is preferred
+	customPath := filepath.Join(t.TempDir(), "custom", "config.json")
+	t.Setenv("PICOCLAW_CONFIG", customPath)
+	t.Setenv("HOME", t.TempDir()) // Also set home to ensure env is preferred
 
 	got := GetConfigPath()
-	want := "/tmp/custom/config.json"
 
-	assert.Equal(t, want, got)
+	assert.Equal(t, customPath, got)
 }

@@ -1,11 +1,17 @@
 // Package devices provides hardware peripheral access (I2C, SPI, GPIO, USB).
-// This extension is primarily useful on embedded Linux (MaixCAM, Raspberry Pi, etc.)
-// and degrades gracefully on other platforms.
+// This extension wraps pkg/infra/devices.Service (USB monitor) and provides
+// hardware tools (I2C, SPI) to the agent.
+//
+// On embedded Linux: USB hotplug monitor + I2C/SPI tools.
+// On other platforms: degrades gracefully (tools return "unsupported").
 package devices
 
 import (
 	"context"
 
+	"github.com/sipeed/picoclaw/pkg/core/bus"
+	infradevices "github.com/sipeed/picoclaw/pkg/infra/devices"
+	"github.com/sipeed/picoclaw/pkg/core/state"
 	"github.com/sipeed/picoclaw/pkg/extension"
 	"github.com/sipeed/picoclaw/pkg/tools"
 )
@@ -14,6 +20,8 @@ import (
 type Ext struct {
 	enabled    bool
 	monitorUSB bool
+	service    *infradevices.Service
+	msgBus     *bus.MessageBus
 }
 
 func New() *Ext { return &Ext{} }
@@ -27,18 +35,35 @@ func (e *Ext) Init(ctx extension.ExtensionContext) error {
 	if v, ok := ctx.Config["monitor_usb"].(bool); ok {
 		e.monitorUSB = v
 	}
+	if bus, ok := ctx.Config["bus"].(*bus.MessageBus); ok {
+		e.msgBus = bus
+	}
+
+	if e.enabled {
+		stateMgr := state.NewManager(ctx.Workspace)
+		e.service = infradevices.NewService(infradevices.Config{
+			Enabled:    e.enabled,
+			MonitorUSB: e.monitorUSB,
+		}, stateMgr)
+		if e.msgBus != nil {
+			e.service.SetBus(e.msgBus)
+		}
+	}
+
 	return nil
 }
 
 func (e *Ext) Start(ctx context.Context) error {
-	if !e.enabled {
-		return nil
+	if e.service != nil {
+		return e.service.Start(ctx)
 	}
-	// TODO: start USB monitor goroutine if e.monitorUSB
 	return nil
 }
 
 func (e *Ext) Stop() error {
+	if e.service != nil {
+		e.service.Stop()
+	}
 	return nil
 }
 

@@ -185,6 +185,14 @@ type AgentDefaults struct {
 	PreLLMModel   string `json:"pre_llm_model,omitempty"   env:"PICOCLAW_AGENTS_DEFAULTS_PRE_LLM_MODEL"`
 	DigestModel   string `json:"digest_model,omitempty"    env:"PICOCLAW_AGENTS_DEFAULTS_DIGEST_MODEL"`
 
+	// STT (Speech-to-Text) model — OpenAI-compatible /v1/audio/transcriptions.
+	// Examples:
+	//   "groq/whisper"           → Groq Whisper-large-v3 (fast, free tier)
+	//   "openai/whisper-1"       → OpenAI Whisper
+	//   "local/faster-whisper"   → local server at api_base in model_list
+	// Falls back to a no-op (disabled) if empty.
+	STTModel string `json:"stt_model,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_STT_MODEL"`
+
 	ImageModel                string   `json:"image_model,omitempty"              env:"PICOCLAW_AGENTS_DEFAULTS_IMAGE_MODEL"`
 	ImageModelFallbacks       []string `json:"image_model_fallbacks,omitempty"`
 	MaxTokens                 int      `json:"max_tokens,omitempty"               env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOKENS"`
@@ -237,4 +245,10 @@ func (d *AgentDefaults) GetDigestModel() string {
 		return d.DigestModel
 	}
 	return d.GetAuxiliaryModel()
+}
+
+// GetSTTModel returns the model name for Speech-to-Text transcription.
+// Returns empty string if not configured (STT disabled).
+func (d *AgentDefaults) GetSTTModel() string {
+	return d.STTModel
 }

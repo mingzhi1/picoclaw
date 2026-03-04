@@ -2,6 +2,7 @@ package server
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sipeed/picoclaw/pkg/llm/auth"
@@ -112,11 +113,17 @@ func TestUpdateConfigAfterLogin_OpenAI_ExistingModel(t *testing.T) {
 }
 
 func TestUpdateConfigAfterLogin_OpenAI_NoExistingModel(t *testing.T) {
-	cfg := &config.Config{
-		ModelList: []config.ModelConfig{
-			{ModelName: "claude", Model: "anthropic/claude-sonnet-4.6"},
-		},
+	// Start with a config that has only anthropic, no openai model
+	// Use DefaultConfig so there's a model_list (non-empty → hasUserModelList=true)
+	cfg := config.DefaultConfig()
+	// Remove all OpenAI models from the list
+	var filtered []config.ModelConfig
+	for _, m := range cfg.ModelList {
+		if !strings.HasPrefix(m.Model, "openai/") {
+			filtered = append(filtered, m)
+		}
 	}
+	cfg.ModelList = filtered
 	path := writeTempConfigViaSave(t, cfg)
 
 	cred := &auth.AuthCredential{AuthMethod: "oauth"}
@@ -124,19 +131,29 @@ func TestUpdateConfigAfterLogin_OpenAI_NoExistingModel(t *testing.T) {
 
 	result := loadTempConfig(t, path)
 
-	if len(result.ModelList) != 2 {
-		t.Fatalf("expected 2 models (original + added), got %d", len(result.ModelList))
+	// One OpenAI model should have been added
+	var openAIModels []config.ModelConfig
+	for _, m := range result.ModelList {
+		if strings.HasPrefix(m.Model, "openai/") {
+			openAIModels = append(openAIModels, m)
+		}
 	}
-	if result.ModelList[1].Model != "openai/gpt-5.2" {
-		t.Errorf("expected added model openai/gpt-5.2, got %q", result.ModelList[1].Model)
+	if len(openAIModels) != 1 {
+		t.Fatalf("expected exactly 1 openai model added, got %d", len(openAIModels))
 	}
-	if result.Agents.Defaults.ModelName != "gpt-5.2" {
-		t.Errorf("expected default model_name=gpt-5.2, got %q", result.Agents.Defaults.ModelName)
+	if openAIModels[0].Model != "openai/gpt-5.2" {
+		t.Errorf("expected added model openai/gpt-5.2, got %q", openAIModels[0].Model)
+	}
+	if result.Agents.Defaults.PrimaryModel != "gpt-5.2" {
+		t.Errorf("expected default primary_model=gpt-5.2, got %q", result.Agents.Defaults.PrimaryModel)
 	}
 }
 
 func TestUpdateConfigAfterLogin_Anthropic(t *testing.T) {
-	cfg := &config.Config{}
+	// Use DefaultConfig so LoadConfig doesn't re-inject defaults.
+	// The default model list already contains an anthropic model;
+	// updateConfigAfterLogin should find it and update auth_method.
+	cfg := config.DefaultConfig()
 	path := writeTempConfigViaSave(t, cfg)
 
 	cred := &auth.AuthCredential{AuthMethod: "token"}
@@ -144,20 +161,24 @@ func TestUpdateConfigAfterLogin_Anthropic(t *testing.T) {
 
 	result := loadTempConfig(t, path)
 
-	// Model should be added with correct auth_method
-	if len(result.ModelList) != 1 {
-		t.Fatalf("expected 1 model added, got %d", len(result.ModelList))
+	// At least one anthropic model should have auth_method="token"
+	var found bool
+	for _, m := range result.ModelList {
+		if strings.HasPrefix(m.Model, "anthropic/") && m.AuthMethod == "token" {
+			found = true
+			break
+		}
 	}
-	if result.ModelList[0].Model != "anthropic/claude-sonnet-4.6" {
-		t.Errorf("expected model anthropic/claude-sonnet-4.6, got %q", result.ModelList[0].Model)
-	}
-	if result.ModelList[0].AuthMethod != "token" {
-		t.Errorf("expected model auth_method=token, got %q", result.ModelList[0].AuthMethod)
+	if !found {
+		t.Error("expected at least one anthropic model with auth_method=token")
 	}
 }
 
 func TestUpdateConfigAfterLogin_GoogleAntigravity(t *testing.T) {
-	cfg := &config.Config{}
+	// Use DefaultConfig so LoadConfig doesn't re-inject defaults.
+	// The default model list already contains an antigravity model;
+	// updateConfigAfterLogin should find it and update auth_method.
+	cfg := config.DefaultConfig()
 	path := writeTempConfigViaSave(t, cfg)
 
 	cred := &auth.AuthCredential{AuthMethod: "oauth"}
@@ -165,15 +186,16 @@ func TestUpdateConfigAfterLogin_GoogleAntigravity(t *testing.T) {
 
 	result := loadTempConfig(t, path)
 
-	// Model should be added with correct auth_method
-	if len(result.ModelList) != 1 {
-		t.Fatalf("expected 1 model added, got %d", len(result.ModelList))
+	// At least one antigravity model should have auth_method="oauth"
+	var found bool
+	for _, m := range result.ModelList {
+		if strings.HasPrefix(m.Model, "antigravity/") && m.AuthMethod == "oauth" {
+			found = true
+			break
+		}
 	}
-	if result.ModelList[0].Model != "antigravity/gemini-3-flash" {
-		t.Errorf("expected model antigravity/gemini-3-flash, got %q", result.ModelList[0].Model)
-	}
-	if result.ModelList[0].AuthMethod != "oauth" {
-		t.Errorf("expected model auth_method=oauth, got %q", result.ModelList[0].AuthMethod)
+	if !found {
+		t.Error("expected at least one antigravity model with auth_method=oauth")
 	}
 }
 

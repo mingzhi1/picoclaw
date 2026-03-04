@@ -100,7 +100,7 @@ func (m *Manager) Register(ext Extension) {
 		map[string]any{"name": ext.Name()})
 }
 
-// InitAll initialises all extensions in registration order.
+// InitAll initialises all extensions in registration order with the same context.
 // Stops and returns on the first error.
 func (m *Manager) InitAll(ctx ExtensionContext) error {
 	m.mu.RLock()
@@ -114,6 +114,25 @@ func (m *Manager) InitAll(ctx ExtensionContext) error {
 			map[string]any{"name": ext.Name()})
 	}
 	return nil
+}
+
+// InitOne initialises a single extension by name with the provided context.
+// Returns an error if the extension is not found.
+func (m *Manager) InitOne(name string, ctx ExtensionContext) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, ext := range m.extensions {
+		if ext.Name() == name {
+			if err := ext.Init(ctx); err != nil {
+				return fmt.Errorf("extension %q init: %w", name, err)
+			}
+			logger.InfoCF("extension", "Initialised",
+				map[string]any{"name": name})
+			return nil
+		}
+	}
+	return fmt.Errorf("extension %q not registered", name)
 }
 
 // StartAll starts all extensions in registration order.

@@ -184,8 +184,12 @@ func (r *Reflector) SetTools(registry *tools.ToolRegistry) {
 		execTool, _ = tool.(*tools.ExecTool)
 	}
 	var workspace string
-	// Best-effort: no workspace needed since ExecTool already has one.
-	r.shellInstance = tools.NewShellInstance(execTool, workspace)
+	var restrict bool
+	if execTool != nil {
+		workspace = execTool.WorkingDir()
+		restrict = execTool.RestrictToWorkspace()
+	}
+	r.shellInstance = tools.NewShellInstance(execTool, workspace, restrict)
 }
 
 // SetAgentInfo provides the Runtime with agent and channel references

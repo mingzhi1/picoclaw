@@ -326,7 +326,7 @@ func TestShellTool_DevNullAllowed(t *testing.T) {
 		"echo hello > /dev/null",
 		"echo hello 2> /dev/null",
 		"echo hello >/dev/null 2>&1",
-		"find " + tmpDir + " -name '*.go' 2>/dev/null",
+		"find . -name '*.go' 2>/dev/null",
 	}
 
 	for _, cmd := range commands {

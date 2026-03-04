@@ -369,57 +369,78 @@ func (m *Manager) StartAll(ctx context.Context) error {
 }
 
 func (m *Manager) StopAll(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	logger.InfoC("channels", "Stopping all channels")
 
-	// Shutdown shared HTTP server first
-	if m.httpServer != nil {
+	// ── Phase 1 (lock held, non-blocking) ─────────────────────────────────
+	// Snapshot all state and clear maps in one go so concurrent readers
+	// (dispatchLoop, GetChannel, GetStatus) immediately see an empty manager.
+	m.mu.Lock()
+	httpSrv := m.httpServer
+	m.httpServer = nil
+
+	dispatchTask := m.dispatchTask
+	m.dispatchTask = nil
+
+	// Snapshot workers and channels, then clear maps.
+	workers := make(map[string]*channelWorker, len(m.workers))
+	for k, v := range m.workers {
+		workers[k] = v
+	}
+	channels := make(map[string]Channel, len(m.channels))
+	for k, v := range m.channels {
+		channels[k] = v
+	}
+	m.workers = make(map[string]*channelWorker)
+	m.channels = make(map[string]Channel)
+	m.mu.Unlock()
+	// ── End Phase 1 ────────────────────────────────────────────────────────
+
+	// ── Phase 2 (lock released, blocking) ─────────────────────────────────
+	// All blocking operations happen here, without holding m.mu.
+
+	// 1. Shut down HTTP server (waits for in-flight requests, max 5 s).
+	if httpSrv != nil {
 		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		if err := m.httpServer.Shutdown(shutdownCtx); err != nil {
+		if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 			logger.ErrorCF("channels", "Shared HTTP server shutdown error", map[string]any{
 				"error": err.Error(),
 			})
 		}
-		m.httpServer = nil
 	}
 
-	// Cancel dispatcher
-	if m.dispatchTask != nil {
-		m.dispatchTask.cancel()
-		m.dispatchTask = nil
+	// 2. Cancel dispatcher goroutines (unblocks workers waiting on queues).
+	if dispatchTask != nil {
+		dispatchTask.cancel()
 	}
 
-	// Close all worker queues and wait for them to drain
-	for _, w := range m.workers {
+	// 3. Close outbound queues and wait for workers to drain.
+	for _, w := range workers {
 		if w != nil {
 			close(w.queue)
 		}
 	}
-	for _, w := range m.workers {
+	for _, w := range workers {
 		if w != nil {
 			<-w.done
 		}
 	}
-	// Close all media worker queues and wait for them to drain
-	for _, w := range m.workers {
+
+	// 4. Close media queues and wait for media workers to drain.
+	for _, w := range workers {
 		if w != nil {
 			close(w.mediaQueue)
 		}
 	}
-	for _, w := range m.workers {
+	for _, w := range workers {
 		if w != nil {
 			<-w.mediaDone
 		}
 	}
 
-	// Stop all channels
-	for name, channel := range m.channels {
-		logger.InfoCF("channels", "Stopping channel", map[string]any{
-			"channel": name,
-		})
+	// 5. Stop all channels.
+	for name, channel := range channels {
+		logger.InfoCF("channels", "Stopping channel", map[string]any{"channel": name})
 		if err := channel.Stop(ctx); err != nil {
 			logger.ErrorCF("channels", "Error stopping channel", map[string]any{
 				"channel": name,
@@ -427,6 +448,7 @@ func (m *Manager) StopAll(ctx context.Context) error {
 			})
 		}
 	}
+	// ── End Phase 2 ────────────────────────────────────────────────────────
 
 	logger.InfoC("channels", "All channels stopped")
 	return nil
