@@ -3,7 +3,7 @@ package channels
 import (
 	"sync"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
+	"github.com/sipeed/picoclaw/pkg/core/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
 )
 
