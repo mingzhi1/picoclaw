@@ -8,8 +8,8 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/core/bus"
 	"github.com/sipeed/picoclaw/pkg/core"
-	"github.com/sipeed/picoclaw/pkg/devices/events"
-	"github.com/sipeed/picoclaw/pkg/devices/sources"
+	"github.com/sipeed/picoclaw/pkg/infra/devices/events"
+	"github.com/sipeed/picoclaw/pkg/infra/devices/sources"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/core/state"
 )

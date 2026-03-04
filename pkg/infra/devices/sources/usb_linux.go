@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sipeed/picoclaw/pkg/devices/events"
+	"github.com/sipeed/picoclaw/pkg/infra/devices/events"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 )
 

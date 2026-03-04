@@ -9,7 +9,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/core/bus"
 	"github.com/sipeed/picoclaw/pkg/infra/config"
-	"github.com/sipeed/picoclaw/pkg/cron"
+	"github.com/sipeed/picoclaw/pkg/infra/cron"
 	"github.com/sipeed/picoclaw/pkg/infra/utils"
 )
 
