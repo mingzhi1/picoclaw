@@ -52,16 +52,21 @@ func NewTelegramChannel(cfg *config.Config, bus *bus.MessageBus) (*TelegramChann
 	var opts []telego.BotOption
 	telegramCfg := cfg.Channels.Telegram
 
+	// Telegram long-polling Timeout is 30s — the server holds the connection
+	// for up to 30s before responding. The HTTP client timeout must be strictly
+	// longer, otherwise it races and fires "context deadline exceeded".
+	const longPollHTTPTimeout = 60 * time.Second
+
 	if telegramCfg.Proxy != "" {
 		// Per-channel proxy override
-		client, proxyErr := httpclient.NewWithProxy(0, telegramCfg.Proxy)
+		client, proxyErr := httpclient.NewWithProxy(longPollHTTPTimeout, telegramCfg.Proxy)
 		if proxyErr != nil {
 			return nil, fmt.Errorf("invalid telegram proxy: %w", proxyErr)
 		}
 		opts = append(opts, telego.WithHTTPClient(client))
 	} else {
-		// Use global httpclient (inherits global proxy + env proxy)
-		opts = append(opts, telego.WithHTTPClient(httpclient.Default()))
+		// Use global proxy with extended timeout for long polling
+		opts = append(opts, telego.WithHTTPClient(httpclient.New(longPollHTTPTimeout)))
 	}
 
 	bot, err := telego.NewBot(telegramCfg.Token, opts...)
