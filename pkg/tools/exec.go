@@ -12,8 +12,10 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sipeed/picoclaw/pkg/infra/config"
+	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
 type ExecTool struct {
@@ -264,8 +266,25 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]any) *ToolResult
 	}
 
 	output := stdout.String()
-	if stderr.Len() > 0 {
-		output += "\nSTDERR:\n" + stderr.String()
+	stderrStr := stderr.String()
+
+	// On Windows, PowerShell outputs CJK text in GBK/CP936 encoding.
+	// Decode to UTF-8 so the LLM receives readable error messages.
+	if runtime.GOOS == "windows" {
+		if !utf8.ValidString(output) {
+			if decoded, err := simplifiedchinese.GBK.NewDecoder().String(output); err == nil {
+				output = decoded
+			}
+		}
+		if !utf8.ValidString(stderrStr) {
+			if decoded, err := simplifiedchinese.GBK.NewDecoder().String(stderrStr); err == nil {
+				stderrStr = decoded
+			}
+		}
+	}
+
+	if stderrStr != "" {
+		output += "\nSTDERR:\n" + stderrStr
 	}
 
 	if err != nil {
@@ -277,6 +296,28 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]any) *ToolResult
 				IsError: true,
 			}
 		}
+
+		// Detect "command not found" to give the LLM a clear, actionable error.
+		if strings.Contains(stderrStr, "CommandNotFoundException") ||
+			strings.Contains(stderrStr, "not recognized") ||
+			strings.Contains(stderrStr, "command not found") ||
+			strings.Contains(stderrStr, "not found") {
+			// Extract the command name from the original command string
+			cmdName := command
+			if parts := strings.Fields(command); len(parts) > 0 {
+				cmdName = parts[0]
+			}
+			msg := fmt.Sprintf("Command '%s' is not installed or not found in PATH. "+
+				"Try an alternative approach (e.g. use web_fetch tool instead of browser CLI, "+
+				"or suggest the user to install the missing command).\nOriginal error: %s",
+				cmdName, stderrStr)
+			return &ToolResult{
+				ForLLM:  msg,
+				ForUser: fmt.Sprintf("Command '%s' not found. It may need to be installed first.", cmdName),
+				IsError: true,
+			}
+		}
+
 		output += fmt.Sprintf("\nExit code: %v", err)
 	}
 

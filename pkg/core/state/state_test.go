@@ -1,141 +1,79 @@
 package state
 
 import (
-	"encoding/json"
-	"errors"
+	"database/sql"
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
+
+	_ "modernc.org/sqlite"
 )
 
-func TestAtomicSave(t *testing.T) {
-	// Create temp workspace
-	tmpDir, err := os.MkdirTemp("", "state-test-*")
+func testDB(t *testing.T) *sql.DB {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(wal)&_pragma=busy_timeout(3000)")
 	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
+		t.Fatalf("Failed to open test db: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	t.Cleanup(func() { db.Close() })
+	return db
+}
 
-	sm := NewManager(tmpDir)
+func TestSetLastChannel(t *testing.T) {
+	db := testDB(t)
+	sm := NewManager(db)
 
-	// Test SetLastChannel
-	err = sm.SetLastChannel("test-channel")
+	err := sm.SetLastChannel("test-channel")
 	if err != nil {
 		t.Fatalf("SetLastChannel failed: %v", err)
 	}
 
-	// Verify the channel was saved
 	lastChannel := sm.GetLastChannel()
 	if lastChannel != "test-channel" {
 		t.Errorf("Expected channel 'test-channel', got '%s'", lastChannel)
 	}
 
-	// Verify timestamp was updated
 	if sm.GetTimestamp().IsZero() {
 		t.Error("Expected timestamp to be updated")
 	}
 
-	// Verify state file exists
-	stateFile := filepath.Join(tmpDir, "state", "state.json")
-	if _, err := os.Stat(stateFile); os.IsNotExist(err) {
-		t.Error("Expected state file to exist")
-	}
-
 	// Create a new manager to verify persistence
-	sm2 := NewManager(tmpDir)
+	sm2 := NewManager(db)
 	if sm2.GetLastChannel() != "test-channel" {
 		t.Errorf("Expected persistent channel 'test-channel', got '%s'", sm2.GetLastChannel())
 	}
 }
 
 func TestSetLastChatID(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "state-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	db := testDB(t)
+	sm := NewManager(db)
 
-	sm := NewManager(tmpDir)
-
-	// Test SetLastChatID
-	err = sm.SetLastChatID("test-chat-id")
+	err := sm.SetLastChatID("test-chat-id")
 	if err != nil {
 		t.Fatalf("SetLastChatID failed: %v", err)
 	}
 
-	// Verify the chat ID was saved
 	lastChatID := sm.GetLastChatID()
 	if lastChatID != "test-chat-id" {
 		t.Errorf("Expected chat ID 'test-chat-id', got '%s'", lastChatID)
 	}
 
-	// Verify timestamp was updated
 	if sm.GetTimestamp().IsZero() {
 		t.Error("Expected timestamp to be updated")
 	}
 
-	// Create a new manager to verify persistence
-	sm2 := NewManager(tmpDir)
+	sm2 := NewManager(db)
 	if sm2.GetLastChatID() != "test-chat-id" {
 		t.Errorf("Expected persistent chat ID 'test-chat-id', got '%s'", sm2.GetLastChatID())
 	}
 }
 
-func TestAtomicity_NoCorruptionOnInterrupt(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "state-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	sm := NewManager(tmpDir)
-
-	// Write initial state
-	err = sm.SetLastChannel("initial-channel")
-	if err != nil {
-		t.Fatalf("SetLastChannel failed: %v", err)
-	}
-
-	// Simulate a crash scenario by manually creating a corrupted temp file
-	tempFile := filepath.Join(tmpDir, "state", "state.json.tmp")
-	err = os.WriteFile(tempFile, []byte("corrupted data"), 0o644)
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-
-	// Verify that the original state is still intact
-	lastChannel := sm.GetLastChannel()
-	if lastChannel != "initial-channel" {
-		t.Errorf("Expected channel 'initial-channel' after corrupted temp file, got '%s'", lastChannel)
-	}
-
-	// Clean up the temp file manually
-	os.Remove(tempFile)
-
-	// Now do a proper save
-	err = sm.SetLastChannel("new-channel")
-	if err != nil {
-		t.Fatalf("SetLastChannel failed: %v", err)
-	}
-
-	// Verify the new state was saved
-	if sm.GetLastChannel() != "new-channel" {
-		t.Errorf("Expected channel 'new-channel', got '%s'", sm.GetLastChannel())
-	}
-}
-
 func TestConcurrentAccess(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "state-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	db := testDB(t)
+	sm := NewManager(db)
 
-	sm := NewManager(tmpDir)
-
-	// Test concurrent writes
 	done := make(chan bool, 10)
 	for i := range 10 {
 		go func(idx int) {
@@ -145,46 +83,25 @@ func TestConcurrentAccess(t *testing.T) {
 		}(i)
 	}
 
-	// Wait for all goroutines to complete
 	for range 10 {
 		<-done
 	}
 
-	// Verify the final state is consistent
 	lastChannel := sm.GetLastChannel()
 	if lastChannel == "" {
 		t.Error("Expected non-empty channel after concurrent writes")
 	}
-
-	// Verify state file is valid JSON
-	stateFile := filepath.Join(tmpDir, "state", "state.json")
-	data, err := os.ReadFile(stateFile)
-	if err != nil {
-		t.Fatalf("Failed to read state file: %v", err)
-	}
-
-	var state State
-	if err := json.Unmarshal(data, &state); err != nil {
-		t.Errorf("State file contains invalid JSON: %v", err)
-	}
 }
 
 func TestNewManager_ExistingState(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "state-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	db := testDB(t)
 
-	// Create initial state
-	sm1 := NewManager(tmpDir)
+	sm1 := NewManager(db)
 	sm1.SetLastChannel("existing-channel")
 	sm1.SetLastChatID("existing-chat-id")
 
-	// Create new manager with same workspace
-	sm2 := NewManager(tmpDir)
+	sm2 := NewManager(db)
 
-	// Verify state was loaded
 	if sm2.GetLastChannel() != "existing-channel" {
 		t.Errorf("Expected channel 'existing-channel', got '%s'", sm2.GetLastChannel())
 	}
@@ -194,16 +111,10 @@ func TestNewManager_ExistingState(t *testing.T) {
 	}
 }
 
-func TestNewManager_EmptyWorkspace(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "state-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+func TestNewManager_EmptyDB(t *testing.T) {
+	db := testDB(t)
+	sm := NewManager(db)
 
-	sm := NewManager(tmpDir)
-
-	// Verify default state
 	if sm.GetLastChannel() != "" {
 		t.Errorf("Expected empty channel, got '%s'", sm.GetLastChannel())
 	}
@@ -217,38 +128,19 @@ func TestNewManager_EmptyWorkspace(t *testing.T) {
 	}
 }
 
-func TestNewManager_MkdirFailureCrashes(t *testing.T) {
-	// Since log.Fatalf calls os.Exit(1), we cannot test it normally
-	// Otherwise, the test suite would stop altogether.
-	// We use the standard pattern of Go: rerun this test in a subprocess.
-	if os.Getenv("BE_CRASHER") == "1" {
-		tmpDir := os.Getenv("CRASH_DIR")
+func TestNewManager_NilDB(t *testing.T) {
+	sm := NewManager(nil)
 
-		statePath := filepath.Join(tmpDir, "state")
-		if err := os.WriteFile(statePath, []byte("I'm a file, not a folder"), 0o644); err != nil {
-			fmt.Printf("setup failed: %v", err)
-			os.Exit(0)
-		}
-
-		NewManager(tmpDir)
-		os.Exit(0)
+	// Should not panic
+	if sm.GetLastChannel() != "" {
+		t.Errorf("Expected empty channel with nil db")
 	}
 
-	tmpDir, err := os.MkdirTemp("", "state-crash-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
+	// SetLastChannel should not error (noop)
+	if err := sm.SetLastChannel("test"); err != nil {
+		t.Errorf("Expected no error with nil db, got %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
-
-	cmd := exec.Command(os.Args[0], "-test.run=TestNewManager_MkdirFailureCrashes")
-	cmd.Env = append(os.Environ(), "BE_CRASHER=1", "CRASH_DIR="+tmpDir)
-
-	err = cmd.Run()
-
-	var e *exec.ExitError
-	if errors.As(err, &e) && !e.Success() {
-		return
-	}
-
-	t.Fatalf("The process ended without error, a crash was expected via os.Exit(1). Err: %v", err)
 }
+
+// Suppress unused warning for sync.
+var _ = sync.Mutex{}

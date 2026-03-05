@@ -175,12 +175,6 @@ func extractParentPeer(msg bus.InboundMessage) *routing.RoutePeer {
 	return &routing.RoutePeer{Kind: parentKind, ID: parentID}
 }
 
-// activeContextPath returns the full path for the active_context.json file
-// stored inside the workspace directory.
-func activeContextPath(workspace string) string {
-	return filepath.Join(workspace, "active_context.json")
-}
-
 // resolveSttConfig builds the config map for the voice extension by looking up
 // the stt_model entry in config.ModelList.
 // Returns a map suitable for extension.ExtensionContext.Config.

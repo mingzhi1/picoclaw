@@ -1,15 +1,11 @@
 package state
 
 import (
-	"encoding/json"
+	"database/sql"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
-
-	"github.com/sipeed/picoclaw/pkg/infra/utils"
 )
 
 // State represents the persistent state for a workspace.
@@ -25,45 +21,32 @@ type State struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// Manager manages persistent state with atomic saves.
+const stateDDL = `
+CREATE TABLE IF NOT EXISTS state (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);
+`
+
+// Manager manages persistent state with SQLite backend.
 type Manager struct {
-	workspace string
-	state     *State
-	mu        sync.RWMutex
-	stateFile string
+	state *State
+	mu    sync.RWMutex
+	db    *sql.DB
 }
 
-// NewManager creates a new state manager for the given workspace.
-func NewManager(workspace string) *Manager {
-	stateDir := filepath.Join(workspace, "state")
-	stateFile := filepath.Join(stateDir, "state.json")
-	oldStateFile := filepath.Join(workspace, "state.json")
-
-	// Create state directory if it doesn't exist
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		log.Fatalf("[FATAL] state: failed to create state directory: %v", err)
-	}
-
+// NewManager creates a new state manager backed by a shared SQLite DB.
+// Pass the *sql.DB obtained from store.Open.
+func NewManager(db *sql.DB) *Manager {
 	sm := &Manager{
-		workspace: workspace,
-		stateFile: stateFile,
-		state:     &State{},
+		state: &State{},
+		db:    db,
 	}
 
-	// Try to load from new location first
-	if _, err := os.Stat(stateFile); os.IsNotExist(err) {
-		// New file doesn't exist, try migrating from old location
-		if data, err := os.ReadFile(oldStateFile); err == nil {
-			if err := json.Unmarshal(data, sm.state); err == nil {
-				// Migrate to new location
-				if err := sm.saveAtomic(); err != nil {
-					log.Printf("[WARN] state: failed to save state: %v", err)
-				}
-				log.Printf("[INFO] state: migrated state from %s to %s", oldStateFile, stateFile)
-			}
+	if db != nil {
+		if _, err := db.Exec(stateDDL); err != nil {
+			log.Printf("[WARN] state: failed to create state table: %v", err)
 		}
-	} else {
-		// Load from new location
 		if err := sm.load(); err != nil {
 			log.Printf("[WARN] state: failed to load state: %v", err)
 		}
@@ -73,22 +56,17 @@ func NewManager(workspace string) *Manager {
 }
 
 // SetLastChannel atomically updates the last channel and saves the state.
-// This method uses a temp file + rename pattern for atomic writes,
-// ensuring that the state file is never corrupted even if the process crashes.
 func (sm *Manager) SetLastChannel(channel string) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	// Update state
 	sm.state.LastChannel = channel
 	sm.state.Timestamp = time.Now()
 
-	// Atomic save using temp file + rename
-	if err := sm.saveAtomic(); err != nil {
-		return fmt.Errorf("failed to save state atomically: %w", err)
+	if err := sm.saveKey("last_channel", channel); err != nil {
+		return fmt.Errorf("failed to save state: %w", err)
 	}
-
-	return nil
+	return sm.saveKey("timestamp", fmt.Sprintf("%d", sm.state.Timestamp.Unix()))
 }
 
 // SetLastChatID atomically updates the last chat ID and saves the state.
@@ -96,16 +74,13 @@ func (sm *Manager) SetLastChatID(chatID string) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	// Update state
 	sm.state.LastChatID = chatID
 	sm.state.Timestamp = time.Now()
 
-	// Atomic save using temp file + rename
-	if err := sm.saveAtomic(); err != nil {
-		return fmt.Errorf("failed to save state atomically: %w", err)
+	if err := sm.saveKey("last_chat_id", chatID); err != nil {
+		return fmt.Errorf("failed to save state: %w", err)
 	}
-
-	return nil
+	return sm.saveKey("timestamp", fmt.Sprintf("%d", sm.state.Timestamp.Unix()))
 }
 
 // GetLastChannel returns the last channel from the state.
@@ -129,39 +104,47 @@ func (sm *Manager) GetTimestamp() time.Time {
 	return sm.state.Timestamp
 }
 
-// saveAtomic performs an atomic save using temp file + rename.
-// This ensures that the state file is never corrupted:
-// 1. Write to a temp file
-// 2. Sync to disk (critical for SD cards/flash storage)
-// 3. Rename temp file to target (atomic on POSIX systems)
-// 4. If rename fails, cleanup the temp file
-//
-// Must be called with the lock held.
-func (sm *Manager) saveAtomic() error {
-	// Use unified atomic write utility with explicit sync for flash storage reliability.
-	// Using 0o600 (owner read/write only) for secure default permissions.
-	data, err := json.MarshalIndent(sm.state, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal state: %w", err)
+// saveKey persists a single key-value pair to SQLite.
+func (sm *Manager) saveKey(key, value string) error {
+	if sm.db == nil {
+		return nil
 	}
-
-	return utils.WriteFileAtomic(sm.stateFile, data, 0o600)
+	_, err := sm.db.Exec(`
+		INSERT INTO state (key, value) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		key, value)
+	return err
 }
 
-// load loads the state from disk.
+// load reads state from SQLite.
 func (sm *Manager) load() error {
-	data, err := os.ReadFile(sm.stateFile)
+	if sm.db == nil {
+		return nil
+	}
+
+	rows, err := sm.db.Query(`SELECT key, value FROM state`)
 	if err != nil {
-		// File doesn't exist yet, that's OK
-		if os.IsNotExist(err) {
-			return nil
+		return fmt.Errorf("failed to query state: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			continue
 		}
-		return fmt.Errorf("failed to read state file: %w", err)
+		switch key {
+		case "last_channel":
+			sm.state.LastChannel = value
+		case "last_chat_id":
+			sm.state.LastChatID = value
+		case "timestamp":
+			var ts int64
+			fmt.Sscanf(value, "%d", &ts)
+			if ts > 0 {
+				sm.state.Timestamp = time.Unix(ts, 0)
+			}
+		}
 	}
-
-	if err := json.Unmarshal(data, sm.state); err != nil {
-		return fmt.Errorf("failed to unmarshal state: %w", err)
-	}
-
-	return nil
+	return rows.Err()
 }

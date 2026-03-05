@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	namePattern        = regexp.MustCompile(`^[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*$`)
+	namePattern        = regexp.MustCompile(`^[a-zA-Z0-9]+([.\-][a-zA-Z0-9]+)*$`)
 	reFrontmatter      = regexp.MustCompile(`(?s)^---(?:\r\n|\n|\r)(.*?)(?:\r\n|\n|\r)---`)
 	reStripFrontmatter = regexp.MustCompile(`(?s)^---(?:\r\n|\n|\r)(.*?)(?:\r\n|\n|\r)---(?:\r\n|\n|\r)*`)
 	reToolStep         = regexp.MustCompile(`(?m)^\d+\.\s*\[(parallel|serial)\]\s*(.+)$`)
@@ -113,8 +113,11 @@ func (sl *SkillsLoader) ListSkills() []SkillInfo {
 			metadata := sl.getSkillMetadata(skillFile)
 			if metadata != nil {
 				info.Description = metadata.Description
-				info.Name = metadata.Name
 				info.ToolSteps = metadata.ToolSteps
+				// Use metadata name only if it passes validation; otherwise keep directory name.
+				if metadata.Name != "" && namePattern.MatchString(metadata.Name) && len(metadata.Name) <= MaxNameLength {
+					info.Name = metadata.Name
+				}
 			}
 			if err := info.validate(); err != nil {
 				slog.Warn("invalid skill from "+source, "name", info.Name, "error", err)

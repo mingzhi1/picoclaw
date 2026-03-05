@@ -8,6 +8,7 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/extension/voice"
 	"github.com/sipeed/picoclaw/pkg/infra/kvcache"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
+	"github.com/sipeed/picoclaw/pkg/infra/store"
 	"github.com/sipeed/picoclaw/pkg/llm/mcp"
 	"github.com/sipeed/picoclaw/pkg/infra/media"
 	"github.com/sipeed/picoclaw/pkg/llm/providers"
@@ -92,11 +94,20 @@ func NewAgentLoop(
 	defaultAgent := registry.GetDefaultAgent()
 	var stateManager *state.Manager
 	if defaultAgent != nil {
-		stateManager = state.NewManager(defaultAgent.Workspace)
+		stateDB, err := store.Open(defaultAgent.Workspace)
+		if err != nil {
+			logger.ErrorCF("agent", "Failed to open store for state", map[string]any{"error": err.Error()})
+		} else {
+			stateManager = state.NewManager(stateDB)
+		}
 	}
 
 	// Initialise Phase 3 infrastructure.
-	activeCtxStore := NewActiveContextStore()
+	var activeCtxDB *sql.DB
+	if defaultAgent != nil {
+		activeCtxDB, _ = store.Open(defaultAgent.Workspace)
+	}
+	activeCtxStore := NewActiveContextStore(activeCtxDB)
 	var ts *TurnStore
 	var digestWorker *MemoryDigestWorker
 	if defaultAgent != nil {
@@ -303,16 +314,7 @@ func registerSharedTools(
 func (al *AgentLoop) Run(ctx context.Context) error {
 	al.running.Store(true)
 
-	// Load persisted Active Context.
-	if al.activeCtx != nil {
-		defaultAgent := al.registry.GetDefaultAgent()
-		if defaultAgent != nil {
-			acPath := activeContextPath(defaultAgent.Workspace)
-			if err := al.activeCtx.Load(acPath); err != nil {
-				logger.WarnCF("agent", "Failed to load active context", map[string]any{"error": err.Error()})
-			}
-		}
-	}
+	// Active context is loaded from SQLite in NewActiveContextStore — no separate Load needed.
 
 	// Start MemoryDigest background worker.
 	if al.memoryDigest != nil {
@@ -469,16 +471,7 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 
 func (al *AgentLoop) Stop() {
 	al.running.Store(false)
-	// Flush Active Context to disk.
-	if al.activeCtx != nil {
-		defaultAgent := al.registry.GetDefaultAgent()
-		if defaultAgent != nil {
-			acPath := activeContextPath(defaultAgent.Workspace)
-			if err := al.activeCtx.Flush(acPath); err != nil {
-				logger.WarnCF("agent", "Failed to flush active context", map[string]any{"error": err.Error()})
-			}
-		}
-	}
+	// Active context is persisted per-update to SQLite — no bulk flush needed.
 	// Close TurnStore.
 	if al.turnStore != nil {
 		if err := al.turnStore.Close(); err != nil {

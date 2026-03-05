@@ -3,6 +3,7 @@
 bin/
 build/
 *.exe
+*.exe~
 *.dll
 *.so
 *.dylib
@@ -49,3 +50,6 @@ dist/
 *.syso
 .task/*
 **/TestLive_*/*.json
+
+
+*.zip

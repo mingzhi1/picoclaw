@@ -1,13 +1,26 @@
 package agent
 
 import (
-	"os"
+	"database/sql"
 	"path/filepath"
 	"testing"
+
+	_ "modernc.org/sqlite"
 )
 
+func testActiveCtxDB(t *testing.T) *sql.DB {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(wal)&_pragma=busy_timeout(3000)")
+	if err != nil {
+		t.Fatalf("Failed to open test db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
 func TestActiveContextStore_UpdateAndGet(t *testing.T) {
-	s := NewActiveContextStore()
+	s := NewActiveContextStore(nil)
 	key := "telegram:12345"
 
 	// Initially empty.
@@ -33,7 +46,7 @@ func TestActiveContextStore_UpdateAndGet(t *testing.T) {
 }
 
 func TestActiveContextStore_FileCapping(t *testing.T) {
-	s := NewActiveContextStore()
+	s := NewActiveContextStore(nil)
 	key := "cli:direct"
 
 	// Add 7 file paths — should cap at 5, newest first.
@@ -49,7 +62,7 @@ func TestActiveContextStore_FileCapping(t *testing.T) {
 }
 
 func TestActiveContextStore_ErrorCapping(t *testing.T) {
-	s := NewActiveContextStore()
+	s := NewActiveContextStore(nil)
 	key := "wecom:alice"
 
 	for i := 0; i < 5; i++ {
@@ -63,31 +76,18 @@ func TestActiveContextStore_ErrorCapping(t *testing.T) {
 	}
 }
 
-func TestActiveContextStore_FlushAndLoad(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "active_context.json")
+func TestActiveContextStore_SQLitePersistence(t *testing.T) {
+	db := testActiveCtxDB(t)
 
-	s := NewActiveContextStore()
+	s := NewActiveContextStore(db)
 	key := "cli:direct"
 	s.UpdateWithFiles(key, RuntimeInput{}, []string{"main.go"})
 	s.Update(key, RuntimeInput{
 		ToolCalls: []ToolCallRecord{{Name: "exec", Error: "failed"}},
 	})
 
-	if err := s.Flush(path); err != nil {
-		t.Fatalf("Flush: %v", err)
-	}
-
-	// File must exist.
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("expected file to exist: %v", err)
-	}
-
-	// Load into new store.
-	s2 := NewActiveContextStore()
-	if err := s2.Load(path); err != nil {
-		t.Fatalf("Load: %v", err)
-	}
+	// Load into new store from same DB to verify persistence.
+	s2 := NewActiveContextStore(db)
 	ac := s2.Get(key)
 	if len(ac.CurrentFiles) != 1 || ac.CurrentFiles[0] != "main.go" {
 		t.Errorf("unexpected files after reload: %v", ac.CurrentFiles)
@@ -97,11 +97,16 @@ func TestActiveContextStore_FlushAndLoad(t *testing.T) {
 	}
 }
 
-func TestActiveContextStore_LoadMissingFile(t *testing.T) {
-	s := NewActiveContextStore()
-	// Should not error on missing file.
-	if err := s.Load("/nonexistent/path.json"); err != nil {
-		t.Errorf("Load of missing file should return nil, got: %v", err)
+func TestActiveContextStore_NilDB(t *testing.T) {
+	s := NewActiveContextStore(nil)
+
+	// Should not panic
+	s.Update("test", RuntimeInput{
+		ToolCalls: []ToolCallRecord{{Name: "exec", Error: "err"}},
+	})
+	ac := s.Get("test")
+	if len(ac.RecentErrors) != 1 {
+		t.Errorf("expected 1 error in memory-only mode, got %d", len(ac.RecentErrors))
 	}
 }
 

@@ -6,9 +6,9 @@
 package agent
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 
@@ -28,18 +28,33 @@ type ActiveContext struct {
 	RecentErrors []string `json:"recent_errors"` // newest first, max 3
 }
 
+const activeContextDDL = `
+CREATE TABLE IF NOT EXISTS active_context (
+    key   TEXT PRIMARY KEY,
+    data  TEXT NOT NULL DEFAULT '{}'
+);
+`
+
 // ActiveContextStore is a thread-safe in-memory map of channel:chatID → ActiveContext.
-// On startup it is loaded from disk; on stop it is flushed back.
+// It is backed by SQLite for persistence (db may be nil for memory-only mode).
 type ActiveContextStore struct {
 	mu   sync.RWMutex
 	data map[string]*ActiveContext // key = "channel:chatID"
+	db   *sql.DB
 }
 
-// NewActiveContextStore creates an empty store.
-func NewActiveContextStore() *ActiveContextStore {
-	return &ActiveContextStore{
+// NewActiveContextStore creates a store. If db is non-nil, the table is created
+// and existing rows are loaded into memory.
+func NewActiveContextStore(db *sql.DB) *ActiveContextStore {
+	s := &ActiveContextStore{
 		data: make(map[string]*ActiveContext),
+		db:   db,
 	}
+	if db != nil {
+		db.Exec(activeContextDDL)
+		s.loadAll()
+	}
+	return s
 }
 
 // Get returns a copy of the ActiveContext for the given key (never nil).
@@ -107,6 +122,8 @@ func (s *ActiveContextStore) Update(key string, input RuntimeInput) {
 		// Prepend (newest first) and cap at 3.
 		ac.RecentErrors = prependCapped(ac.RecentErrors, msg, 3)
 	}
+
+	s.persist(key, ac)
 }
 
 // UpdateWithFiles is an extended update that also receives file paths extracted
@@ -132,6 +149,8 @@ func (s *ActiveContextStore) UpdateWithFiles(key string, input RuntimeInput, fil
 			ac.CurrentFiles = prependCapped(ac.CurrentFiles, p, 5)
 		}
 	}
+
+	s.persist(key, ac)
 }
 
 // prependCapped prepends item to slice and caps the result at max length.
@@ -176,58 +195,44 @@ func (ac *ActiveContext) Format() string {
 }
 
 // ---------------------------------------------------------------------------
-// Persistence
+// SQLite persistence
 // ---------------------------------------------------------------------------
 
-// persistedStore is the on-disk JSON format for ActiveContextStore.
-type persistedStore struct {
-	Contexts map[string]*ActiveContext `json:"contexts"`
+// persist writes a single key to SQLite (called with lock held).
+func (s *ActiveContextStore) persist(key string, ac *ActiveContext) {
+	if s.db == nil {
+		return
+	}
+	data, err := json.Marshal(ac)
+	if err != nil {
+		return
+	}
+	s.db.Exec(`
+		INSERT INTO active_context (key, data) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET data = excluded.data`,
+		key, string(data))
 }
 
-// Flush serialises the store to a JSON file at the given path.
-func (s *ActiveContextStore) Flush(path string) error {
-	s.mu.RLock()
-	out := persistedStore{Contexts: make(map[string]*ActiveContext, len(s.data))}
-	for k, v := range s.data {
-		cp := *v
-		cp.CurrentFiles = append([]string(nil), v.CurrentFiles...)
-		cp.RecentErrors = append([]string(nil), v.RecentErrors...)
-		out.Contexts[k] = &cp
+// loadAll reads all rows from SQLite into memory.
+func (s *ActiveContextStore) loadAll() {
+	if s.db == nil {
+		return
 	}
-	s.mu.RUnlock()
-
-	data, err := json.MarshalIndent(out, "", "  ")
+	rows, err := s.db.Query(`SELECT key, data FROM active_context`)
 	if err != nil {
-		return fmt.Errorf("active_context: marshal: %w", err)
+		return
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("active_context: write %s: %w", path, err)
-	}
-	logger.DebugCF("active_context", "Flushed to disk", map[string]any{"path": path, "keys": len(out.Contexts)})
-	return nil
-}
-
-// Load deserialises the store from a JSON file at the given path.
-// Missing or unreadable files are silently ignored (returns nil).
-func (s *ActiveContextStore) Load(path string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
+	defer rows.Close()
+	for rows.Next() {
+		var key, raw string
+		if err := rows.Scan(&key, &raw); err != nil {
+			continue
 		}
-		return fmt.Errorf("active_context: read %s: %w", path, err)
-	}
-	var out persistedStore
-	if err := json.Unmarshal(data, &out); err != nil {
-		return fmt.Errorf("active_context: unmarshal: %w", err)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for k, v := range out.Contexts {
-		if v != nil {
-			s.data[k] = v
+		var ac ActiveContext
+		if err := json.Unmarshal([]byte(raw), &ac); err != nil {
+			continue
 		}
+		s.data[key] = &ac
 	}
-	logger.DebugCF("active_context", "Loaded from disk", map[string]any{"path": path, "keys": len(out.Contexts)})
-	return nil
+	logger.DebugCF("active_context", "Loaded from SQLite", map[string]any{"keys": len(s.data)})
 }

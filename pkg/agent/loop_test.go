@@ -115,10 +115,10 @@ func TestNewAgentLoop_StateInitialized(t *testing.T) {
 		t.Error("Expected state manager to be initialized")
 	}
 
-	// Verify state directory was created
-	stateDir := filepath.Join(tmpDir, "state")
-	if _, err := os.Stat(stateDir); os.IsNotExist(err) {
-		t.Error("Expected state directory to exist")
+	// Verify database file was created
+	dbFile := filepath.Join(tmpDir, "picoclaw.db")
+	if _, err := os.Stat(dbFile); os.IsNotExist(err) {
+		t.Error("Expected picoclaw.db to exist")
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/core/bus"
 	infradevices "github.com/sipeed/picoclaw/pkg/infra/devices"
+	"github.com/sipeed/picoclaw/pkg/infra/store"
 	"github.com/sipeed/picoclaw/pkg/core/state"
 	"github.com/sipeed/picoclaw/pkg/extension"
 	"github.com/sipeed/picoclaw/pkg/tools"
@@ -40,7 +41,11 @@ func (e *Ext) Init(ctx extension.ExtensionContext) error {
 	}
 
 	if e.enabled {
-		stateMgr := state.NewManager(ctx.Workspace)
+		db, err := store.Open(ctx.Workspace)
+		var stateMgr *state.Manager
+		if err == nil {
+			stateMgr = state.NewManager(db)
+		}
 		e.service = infradevices.NewService(infradevices.Config{
 			Enabled:    e.enabled,
 			MonitorUSB: e.monitorUSB,

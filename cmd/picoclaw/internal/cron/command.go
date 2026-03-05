@@ -2,7 +2,6 @@ package cron
 
 import (
 	"fmt"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -10,7 +9,7 @@ import (
 )
 
 func NewCronCommand() *cobra.Command {
-	var storePath string
+	var workspace string
 
 	cmd := &cobra.Command{
 		Use:     "cron",
@@ -20,24 +19,26 @@ func NewCronCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return cmd.Help()
 		},
-		// Resolve storePath at execution time so it reflects the current config
+		// Resolve workspace at execution time so it reflects the current config
 		// and is shared across all subcommands.
 		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 			cfg, err := internal.LoadConfig()
 			if err != nil {
 				return fmt.Errorf("error loading config: %w", err)
 			}
-			storePath = filepath.Join(cfg.WorkspacePath(), "cron", "jobs.json")
+			workspace = cfg.WorkspacePath()
 			return nil
 		},
 	}
 
+	getWorkspace := func() string { return workspace }
+
 	cmd.AddCommand(
-		newListCommand(func() string { return storePath }),
-		newAddCommand(func() string { return storePath }),
-		newRemoveCommand(func() string { return storePath }),
-		newEnableCommand(func() string { return storePath }),
-		newDisableCommand(func() string { return storePath }),
+		newListCommand(getWorkspace),
+		newAddCommand(getWorkspace),
+		newRemoveCommand(getWorkspace),
+		newEnableCommand(getWorkspace),
+		newDisableCommand(getWorkspace),
 	)
 
 	return cmd

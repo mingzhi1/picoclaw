@@ -1,10 +1,8 @@
 package session
 
 import (
+	"database/sql"
 	"encoding/json"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -22,17 +20,30 @@ type Session struct {
 type SessionManager struct {
 	sessions map[string]*Session
 	mu       sync.RWMutex
-	storage  string
+	db       *sql.DB
 }
 
-func NewSessionManager(storage string) *SessionManager {
+const sessionsDDL = `
+CREATE TABLE IF NOT EXISTS sessions (
+    key       TEXT    PRIMARY KEY,
+    messages  TEXT    NOT NULL DEFAULT '[]',
+    summary   TEXT    NOT NULL DEFAULT '',
+    created   INTEGER NOT NULL,
+    updated   INTEGER NOT NULL
+);
+`
+
+// NewSessionManager creates a new session manager backed by a shared SQLite DB.
+// Pass the *sql.DB obtained from store.Open.
+// If db is nil, sessions are memory-only (for tests / CLI oneshot).
+func NewSessionManager(db *sql.DB) *SessionManager {
 	sm := &SessionManager{
 		sessions: make(map[string]*Session),
-		storage:  storage,
+		db:       db,
 	}
 
-	if storage != "" {
-		os.MkdirAll(storage, 0o755)
+	if db != nil {
+		db.Exec(sessionsDDL)
 		sm.loadSessions()
 	}
 
@@ -145,31 +156,13 @@ func (sm *SessionManager) TruncateHistory(key string, keepLast int) {
 	session.Updated = time.Now()
 }
 
-// sanitizeFilename converts a session key into a cross-platform safe filename.
-// Session keys use "channel:chatID" (e.g. "telegram:123456") but ':' is the
-// volume separator on Windows, so filepath.Base would misinterpret the key.
-// We replace it with '_'. The original key is preserved inside the JSON file,
-// so loadSessions still maps back to the right in-memory key.
-func sanitizeFilename(key string) string {
-	return strings.ReplaceAll(key, ":", "_")
-}
-
+// Save persists a single session to SQLite.
 func (sm *SessionManager) Save(key string) error {
-	if sm.storage == "" {
+	if sm.db == nil {
 		return nil
 	}
 
-	filename := sanitizeFilename(key)
-
-	// filepath.IsLocal rejects empty names, "..", absolute paths, and
-	// OS-reserved device names (NUL, COM1 … on Windows).
-	// The extra checks reject "." and any directory separators so that
-	// the session file is always written directly inside sm.storage.
-	if filename == "." || !filepath.IsLocal(filename) || strings.ContainsAny(filename, `/\`) {
-		return os.ErrInvalid
-	}
-
-	// Snapshot under read lock, then perform slow file I/O after unlock.
+	// Snapshot under read lock, then perform slow DB I/O after unlock.
 	sm.mu.RLock()
 	stored, ok := sm.sessions[key]
 	if !ok {
@@ -191,78 +184,58 @@ func (sm *SessionManager) Save(key string) error {
 	}
 	sm.mu.RUnlock()
 
-	data, err := json.MarshalIndent(snapshot, "", "  ")
+	msgsJSON, err := json.Marshal(snapshot.Messages)
 	if err != nil {
 		return err
 	}
 
-	sessionPath := filepath.Join(sm.storage, filename+".json")
-	tmpFile, err := os.CreateTemp(sm.storage, "session-*.tmp")
-	if err != nil {
-		return err
-	}
-
-	tmpPath := tmpFile.Name()
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-
-	if _, err := tmpFile.Write(data); err != nil {
-		_ = tmpFile.Close()
-		return err
-	}
-	if err := tmpFile.Chmod(0o644); err != nil {
-		_ = tmpFile.Close()
-		return err
-	}
-	if err := tmpFile.Sync(); err != nil {
-		_ = tmpFile.Close()
-		return err
-	}
-	if err := tmpFile.Close(); err != nil {
-		return err
-	}
-
-	if err := os.Rename(tmpPath, sessionPath); err != nil {
-		return err
-	}
-	cleanup = false
-	return nil
+	_, err = sm.db.Exec(`
+		INSERT INTO sessions (key, messages, summary, created, updated)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(key) DO UPDATE SET
+			messages = excluded.messages,
+			summary  = excluded.summary,
+			updated  = excluded.updated`,
+		snapshot.Key,
+		string(msgsJSON),
+		snapshot.Summary,
+		snapshot.Created.Unix(),
+		snapshot.Updated.Unix(),
+	)
+	return err
 }
 
-func (sm *SessionManager) loadSessions() error {
-	files, err := os.ReadDir(sm.storage)
+func (sm *SessionManager) loadSessions() {
+	if sm.db == nil {
+		return
+	}
+
+	rows, err := sm.db.Query(`SELECT key, messages, summary, created, updated FROM sessions`)
 	if err != nil {
-		return err
+		return
 	}
+	defer rows.Close()
 
-	for _, file := range files {
-		if file.IsDir() {
+	for rows.Next() {
+		var key, msgsJSON, summary string
+		var createdUnix, updatedUnix int64
+		if err := rows.Scan(&key, &msgsJSON, &summary, &createdUnix, &updatedUnix); err != nil {
 			continue
 		}
 
-		if filepath.Ext(file.Name()) != ".json" {
-			continue
+		var msgs []providers.Message
+		if err := json.Unmarshal([]byte(msgsJSON), &msgs); err != nil {
+			msgs = []providers.Message{}
 		}
 
-		sessionPath := filepath.Join(sm.storage, file.Name())
-		data, err := os.ReadFile(sessionPath)
-		if err != nil {
-			continue
+		sm.sessions[key] = &Session{
+			Key:      key,
+			Messages: msgs,
+			Summary:  summary,
+			Created:  time.Unix(createdUnix, 0),
+			Updated:  time.Unix(updatedUnix, 0),
 		}
-
-		var session Session
-		if err := json.Unmarshal(data, &session); err != nil {
-			continue
-		}
-
-		sm.sessions[session.Key] = &session
 	}
-
-	return nil
 }
 
 // SetHistory updates the messages of a session.

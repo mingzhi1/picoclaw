@@ -19,6 +19,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/core"
 	"github.com/sipeed/picoclaw/pkg/infra/utils"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
+	"github.com/sipeed/picoclaw/pkg/infra/store"
 	"github.com/sipeed/picoclaw/pkg/core/state"
 	"github.com/sipeed/picoclaw/pkg/tools"
 )
@@ -56,11 +57,17 @@ func NewHeartbeatService(workspace string, intervalMinutes int, enabled bool) *H
 		intervalMinutes = defaultIntervalMinutes
 	}
 
+	var stateMgr *state.Manager
+	db, err := store.Open(workspace)
+	if err == nil {
+		stateMgr = state.NewManager(db)
+	}
+
 	return &HeartbeatService{
 		workspace: workspace,
 		interval:  time.Duration(intervalMinutes) * time.Minute,
 		enabled:   enabled,
-		state:     state.NewManager(workspace),
+		state:     stateMgr,
 	}
 }
 

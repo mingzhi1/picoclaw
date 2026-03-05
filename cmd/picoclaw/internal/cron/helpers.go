@@ -1,14 +1,26 @@
 package cron
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/infra/cron"
+	"github.com/sipeed/picoclaw/pkg/infra/store"
 )
 
-func cronListCmd(storePath string) {
-	cs := cron.NewCronService(storePath, nil)
+func openCronDB(workspace string) *sql.DB {
+	db, err := store.Open(workspace)
+	if err != nil {
+		fmt.Printf("Error opening store: %v\n", err)
+		return nil
+	}
+	return db
+}
+
+func cronListCmd(workspace string) {
+	db := openCronDB(workspace)
+	cs := cron.NewCronService(db, nil)
 	jobs := cs.ListJobs(true) // Show all jobs, including disabled
 
 	if len(jobs) == 0 {
@@ -46,8 +58,9 @@ func cronListCmd(storePath string) {
 	}
 }
 
-func cronRemoveCmd(storePath, jobID string) {
-	cs := cron.NewCronService(storePath, nil)
+func cronRemoveCmd(workspace, jobID string) {
+	db := openCronDB(workspace)
+	cs := cron.NewCronService(db, nil)
 	if cs.RemoveJob(jobID) {
 		fmt.Printf("✓ Removed job %s\n", jobID)
 	} else {
@@ -55,8 +68,9 @@ func cronRemoveCmd(storePath, jobID string) {
 	}
 }
 
-func cronSetJobEnabled(storePath, jobID string, enabled bool) {
-	cs := cron.NewCronService(storePath, nil)
+func cronSetJobEnabled(workspace, jobID string, enabled bool) {
+	db := openCronDB(workspace)
+	cs := cron.NewCronService(db, nil)
 	job := cs.EnableJob(jobID, enabled)
 	if job != nil {
 		fmt.Printf("✓ Job '%s' enabled\n", job.Name)

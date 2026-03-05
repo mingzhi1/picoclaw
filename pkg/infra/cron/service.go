@@ -1,18 +1,12 @@
 package cron
 
 import (
-	"crypto/rand"
-	"encoding/hex"
-	"encoding/json"
-	"fmt"
+	"database/sql"
 	"log"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/adhocore/gronx"
-
-	"github.com/sipeed/picoclaw/pkg/infra/utils"
 )
 
 type CronSchedule struct {
@@ -51,31 +45,48 @@ type CronJob struct {
 	DeleteAfterRun bool         `json:"deleteAfterRun"`
 }
 
-type CronStore struct {
-	Version int       `json:"version"`
-	Jobs    []CronJob `json:"jobs"`
-}
-
 type JobHandler func(job *CronJob) (string, error)
 
+const cronDDL = `
+CREATE TABLE IF NOT EXISTS cron_jobs (
+    id               TEXT PRIMARY KEY,
+    name             TEXT    NOT NULL DEFAULT '',
+    enabled          INTEGER NOT NULL DEFAULT 1,
+    schedule         TEXT    NOT NULL DEFAULT '{}',
+    payload          TEXT    NOT NULL DEFAULT '{}',
+    next_run_at_ms   INTEGER,
+    last_run_at_ms   INTEGER,
+    last_status      TEXT    NOT NULL DEFAULT '',
+    last_error       TEXT    NOT NULL DEFAULT '',
+    created_at_ms    INTEGER NOT NULL,
+    updated_at_ms    INTEGER NOT NULL,
+    delete_after_run INTEGER NOT NULL DEFAULT 0
+);
+`
+
 type CronService struct {
-	storePath string
-	store     *CronStore
-	onJob     JobHandler
-	mu        sync.RWMutex
-	running   bool
-	stopChan  chan struct{}
-	gronx     *gronx.Gronx
+	db       *sql.DB
+	jobs     []CronJob // in-memory cache
+	onJob    JobHandler
+	mu       sync.RWMutex
+	running  bool
+	stopChan chan struct{}
+	gronx    *gronx.Gronx
 }
 
-func NewCronService(storePath string, onJob JobHandler) *CronService {
+// NewCronService creates a cron service backed by a shared SQLite DB.
+// Pass the *sql.DB obtained from store.Open.
+func NewCronService(db *sql.DB, onJob JobHandler) *CronService {
 	cs := &CronService{
-		storePath: storePath,
-		onJob:     onJob,
-		gronx:     gronx.New(),
+		db:    db,
+		onJob: onJob,
+		gronx: gronx.New(),
 	}
-	// Initialize and load store on creation
-	cs.loadStore()
+	// Initialize schema and load jobs on creation
+	if db != nil {
+		db.Exec(cronDDL)
+	}
+	cs.loadJobs()
 	return cs
 }
 
@@ -87,14 +98,9 @@ func (cs *CronService) Start() error {
 		return nil
 	}
 
-	if err := cs.loadStore(); err != nil {
-		return fmt.Errorf("failed to load store: %w", err)
-	}
-
+	cs.loadJobs()
 	cs.recomputeNextRuns()
-	if err := cs.saveStoreUnsafe(); err != nil {
-		return fmt.Errorf("failed to save store: %w", err)
-	}
+	cs.saveAllJobsUnsafe()
 
 	cs.stopChan = make(chan struct{})
 	cs.running = true
@@ -143,9 +149,8 @@ func (cs *CronService) checkJobs() {
 	now := time.Now().UnixMilli()
 	var dueJobIDs []string
 
-	// Collect jobs that are due (we need to copy them to execute outside lock)
-	for i := range cs.store.Jobs {
-		job := &cs.store.Jobs[i]
+	for i := range cs.jobs {
+		job := &cs.jobs[i]
 		if job.Enabled && job.State.NextRunAtMS != nil && *job.State.NextRunAtMS <= now {
 			dueJobIDs = append(dueJobIDs, job.ID)
 		}
@@ -156,16 +161,13 @@ func (cs *CronService) checkJobs() {
 	for _, jobID := range dueJobIDs {
 		dueMap[jobID] = true
 	}
-	for i := range cs.store.Jobs {
-		if dueMap[cs.store.Jobs[i].ID] {
-			cs.store.Jobs[i].State.NextRunAtMS = nil
+	for i := range cs.jobs {
+		if dueMap[cs.jobs[i].ID] {
+			cs.jobs[i].State.NextRunAtMS = nil
 		}
 	}
 
-	if err := cs.saveStoreUnsafe(); err != nil {
-		log.Printf("[cron] failed to save store: %v", err)
-	}
-
+	cs.saveAllJobsUnsafe()
 	cs.mu.Unlock()
 
 	// Execute jobs outside lock.
@@ -179,8 +181,8 @@ func (cs *CronService) executeJobByID(jobID string) {
 
 	cs.mu.RLock()
 	var callbackJob *CronJob
-	for i := range cs.store.Jobs {
-		job := &cs.store.Jobs[i]
+	for i := range cs.jobs {
+		job := &cs.jobs[i]
 		if job.ID == jobID {
 			jobCopy := *job
 			callbackJob = &jobCopy
@@ -203,9 +205,9 @@ func (cs *CronService) executeJobByID(jobID string) {
 	defer cs.mu.Unlock()
 
 	var job *CronJob
-	for i := range cs.store.Jobs {
-		if cs.store.Jobs[i].ID == jobID {
-			job = &cs.store.Jobs[i]
+	for i := range cs.jobs {
+		if cs.jobs[i].ID == jobID {
+			job = &cs.jobs[i]
 			break
 		}
 	}
@@ -238,260 +240,5 @@ func (cs *CronService) executeJobByID(jobID string) {
 		job.State.NextRunAtMS = nextRun
 	}
 
-	if err := cs.saveStoreUnsafe(); err != nil {
-		log.Printf("[cron] failed to save store: %v", err)
-	}
-}
-
-func (cs *CronService) computeNextRun(schedule *CronSchedule, nowMS int64) *int64 {
-	if schedule.Kind == "at" {
-		if schedule.AtMS != nil && *schedule.AtMS > nowMS {
-			return schedule.AtMS
-		}
-		return nil
-	}
-
-	if schedule.Kind == "every" {
-		if schedule.EveryMS == nil || *schedule.EveryMS <= 0 {
-			return nil
-		}
-		next := nowMS + *schedule.EveryMS
-		return &next
-	}
-
-	if schedule.Kind == "cron" {
-		if schedule.Expr == "" {
-			return nil
-		}
-
-		// Use gronx to calculate next run time
-		now := time.UnixMilli(nowMS)
-		nextTime, err := gronx.NextTickAfter(schedule.Expr, now, false)
-		if err != nil {
-			log.Printf("[cron] failed to compute next run for expr '%s': %v", schedule.Expr, err)
-			return nil
-		}
-
-		nextMS := nextTime.UnixMilli()
-		return &nextMS
-	}
-
-	return nil
-}
-
-func (cs *CronService) recomputeNextRuns() {
-	now := time.Now().UnixMilli()
-	for i := range cs.store.Jobs {
-		job := &cs.store.Jobs[i]
-		if job.Enabled {
-			job.State.NextRunAtMS = cs.computeNextRun(&job.Schedule, now)
-		}
-	}
-}
-
-func (cs *CronService) getNextWakeMS() *int64 {
-	var nextWake *int64
-	for _, job := range cs.store.Jobs {
-		if job.Enabled && job.State.NextRunAtMS != nil {
-			if nextWake == nil || *job.State.NextRunAtMS < *nextWake {
-				nextWake = job.State.NextRunAtMS
-			}
-		}
-	}
-	return nextWake
-}
-
-func (cs *CronService) Load() error {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-	return cs.loadStore()
-}
-
-func (cs *CronService) SetOnJob(handler JobHandler) {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-	cs.onJob = handler
-}
-
-func (cs *CronService) loadStore() error {
-	cs.store = &CronStore{
-		Version: 1,
-		Jobs:    []CronJob{},
-	}
-
-	data, err := os.ReadFile(cs.storePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-
-	return json.Unmarshal(data, cs.store)
-}
-
-func (cs *CronService) saveStoreUnsafe() error {
-	data, err := json.MarshalIndent(cs.store, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	// Use unified atomic write utility with explicit sync for flash storage reliability.
-	return utils.WriteFileAtomic(cs.storePath, data, 0o600)
-}
-
-func (cs *CronService) AddJob(
-	name string,
-	schedule CronSchedule,
-	message string,
-	deliver bool,
-	channel, to string,
-) (*CronJob, error) {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
-	now := time.Now().UnixMilli()
-
-	// One-time tasks (at) should be deleted after execution
-	deleteAfterRun := (schedule.Kind == "at")
-
-	job := CronJob{
-		ID:       generateID(),
-		Name:     name,
-		Enabled:  true,
-		Schedule: schedule,
-		Payload: CronPayload{
-			Kind:    "agent_turn",
-			Message: message,
-			Deliver: deliver,
-			Channel: channel,
-			To:      to,
-		},
-		State: CronJobState{
-			NextRunAtMS: cs.computeNextRun(&schedule, now),
-		},
-		CreatedAtMS:    now,
-		UpdatedAtMS:    now,
-		DeleteAfterRun: deleteAfterRun,
-	}
-
-	cs.store.Jobs = append(cs.store.Jobs, job)
-	if err := cs.saveStoreUnsafe(); err != nil {
-		return nil, err
-	}
-
-	return &job, nil
-}
-
-func (cs *CronService) UpdateJob(job *CronJob) error {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
-	for i := range cs.store.Jobs {
-		if cs.store.Jobs[i].ID == job.ID {
-			cs.store.Jobs[i] = *job
-			cs.store.Jobs[i].UpdatedAtMS = time.Now().UnixMilli()
-			return cs.saveStoreUnsafe()
-		}
-	}
-	return fmt.Errorf("job not found")
-}
-
-func (cs *CronService) RemoveJob(jobID string) bool {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
-	return cs.removeJobUnsafe(jobID)
-}
-
-func (cs *CronService) removeJobUnsafe(jobID string) bool {
-	before := len(cs.store.Jobs)
-	var jobs []CronJob
-	for _, job := range cs.store.Jobs {
-		if job.ID != jobID {
-			jobs = append(jobs, job)
-		}
-	}
-	cs.store.Jobs = jobs
-	removed := len(cs.store.Jobs) < before
-
-	if removed {
-		if err := cs.saveStoreUnsafe(); err != nil {
-			log.Printf("[cron] failed to save store after remove: %v", err)
-		}
-	}
-
-	return removed
-}
-
-func (cs *CronService) EnableJob(jobID string, enabled bool) *CronJob {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
-	for i := range cs.store.Jobs {
-		job := &cs.store.Jobs[i]
-		if job.ID == jobID {
-			job.Enabled = enabled
-			job.UpdatedAtMS = time.Now().UnixMilli()
-
-			if enabled {
-				job.State.NextRunAtMS = cs.computeNextRun(&job.Schedule, time.Now().UnixMilli())
-			} else {
-				job.State.NextRunAtMS = nil
-			}
-
-			if err := cs.saveStoreUnsafe(); err != nil {
-				log.Printf("[cron] failed to save store after enable: %v", err)
-			}
-			return job
-		}
-	}
-
-	return nil
-}
-
-func (cs *CronService) ListJobs(includeDisabled bool) []CronJob {
-	cs.mu.RLock()
-	defer cs.mu.RUnlock()
-
-	if includeDisabled {
-		return cs.store.Jobs
-	}
-
-	var enabled []CronJob
-	for _, job := range cs.store.Jobs {
-		if job.Enabled {
-			enabled = append(enabled, job)
-		}
-	}
-
-	return enabled
-}
-
-func (cs *CronService) Status() map[string]any {
-	cs.mu.RLock()
-	defer cs.mu.RUnlock()
-
-	var enabledCount int
-	for _, job := range cs.store.Jobs {
-		if job.Enabled {
-			enabledCount++
-		}
-	}
-
-	return map[string]any{
-		"enabled":      cs.running,
-		"jobs":         len(cs.store.Jobs),
-		"nextWakeAtMS": cs.getNextWakeMS(),
-	}
-}
-
-func generateID() string {
-	// Use crypto/rand for better uniqueness under concurrent access
-	b := make([]byte, 8)
-	if _, err := rand.Read(b); err != nil {
-		// Fallback to time-based if crypto/rand fails
-		return fmt.Sprintf("%d", time.Now().UnixNano())
-	}
-	return hex.EncodeToString(b)
+	cs.saveAllJobsUnsafe()
 }

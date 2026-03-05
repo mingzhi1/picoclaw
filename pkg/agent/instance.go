@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/sipeed/picoclaw/pkg/infra/config"
+	"github.com/sipeed/picoclaw/pkg/infra/store"
 	"github.com/sipeed/picoclaw/pkg/llm/providers"
 	"github.com/sipeed/picoclaw/pkg/agent/routing"
 	"github.com/sipeed/picoclaw/pkg/core/session"
@@ -71,8 +72,11 @@ func NewAgentInstance(
 	toolsRegistry.Register(tools.NewEditFileTool(workspace, restrict, allowWritePaths))
 	toolsRegistry.Register(tools.NewAppendFileTool(workspace, restrict, allowWritePaths))
 
-	sessionsDir := filepath.Join(workspace, "sessions")
-	sessionsManager := session.NewSessionManager(sessionsDir)
+	db, err := store.Open(workspace)
+	if err != nil {
+		log.Printf("[WARN] agent: failed to open store for sessions: %v", err)
+	}
+	sessionsManager := session.NewSessionManager(db)
 
 	contextBuilder := NewContextBuilder(workspace)
 

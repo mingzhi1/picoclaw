@@ -17,6 +17,58 @@ import (
 
 const skillsSearchMaxResults = 20
 
+// skillsInstallFromZip installs a skill from a local ZIP file.
+func skillsInstallFromZip(cfg *config.Config, zipPath, name string) error {
+	// Resolve absolute path.
+	absZip, err := filepath.Abs(zipPath)
+	if err != nil {
+		return fmt.Errorf("✗ invalid zip path: %w", err)
+	}
+
+	if _, err := os.Stat(absZip); err != nil {
+		return fmt.Errorf("✗ zip file not found: %s", absZip)
+	}
+
+	// Infer skill name from zip filename if not provided.
+	if name == "" {
+		base := filepath.Base(absZip)
+		name = strings.TrimSuffix(base, filepath.Ext(base))
+	}
+
+	if err := utils.ValidateSkillIdentifier(name); err != nil {
+		return fmt.Errorf("✗ invalid skill name %q: %w", name, err)
+	}
+
+	workspace := cfg.WorkspacePath()
+	targetDir := filepath.Join(workspace, "skills", name)
+
+	if _, err := os.Stat(targetDir); err == nil {
+		return fmt.Errorf("✗ skill '%s' already installed at %s", name, targetDir)
+	}
+
+	fmt.Printf("Installing skill '%s' from %s...\n", name, absZip)
+
+	if err := os.MkdirAll(filepath.Join(workspace, "skills"), 0o755); err != nil {
+		return fmt.Errorf("✗ failed to create skills directory: %v", err)
+	}
+
+	if err := utils.ExtractZipFile(absZip, targetDir); err != nil {
+		_ = os.RemoveAll(targetDir)
+		return fmt.Errorf("✗ failed to extract zip: %w", err)
+	}
+
+	// Verify SKILL.md exists.
+	if _, err := os.Stat(filepath.Join(targetDir, "SKILL.md")); err != nil {
+		fmt.Printf("⚠️  Warning: no SKILL.md found in zip. Skill may not load correctly.\n")
+	}
+
+	fmt.Printf("✓ Skill '%s' installed successfully from ZIP!\n", name)
+	fmt.Printf("  Location: %s\n", targetDir)
+
+	return nil
+}
+
+
 func skillsListCmd(loader *skills.SkillsLoader) {
 	allSkills := loader.ListSkills()
 

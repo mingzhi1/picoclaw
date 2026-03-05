@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"time"
 
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
@@ -33,6 +32,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/infra/media"
+	"github.com/sipeed/picoclaw/pkg/infra/store"
 	"github.com/sipeed/picoclaw/pkg/llm/providers"
 	"github.com/sipeed/picoclaw/pkg/tools"
 )
@@ -63,6 +63,12 @@ func gatewayCmd(debug bool) error {
 
 	msgBus := bus.NewMessageBus()
 	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
+
+	// One-time migration of legacy JSON data → SQLite.
+	workspace := cfg.WorkspacePath()
+	if migrateDB, err := store.Open(workspace); err == nil {
+		store.MigrateFromJSON(migrateDB, workspace)
+	}
 
 	// Print agent startup info
 	fmt.Println("\n📦 Agent Status:")
@@ -201,6 +207,7 @@ func gatewayCmd(debug bool) error {
 	cronService.Stop()
 	mediaStore.Stop()
 	agentLoop.Stop()
+	store.CloseAll()
 	fmt.Println("✓ Gateway stopped")
 
 	return nil
@@ -214,10 +221,13 @@ func setupCronTool(
 	execTimeout time.Duration,
 	cfg *config.Config,
 ) *cron.CronService {
-	cronStorePath := filepath.Join(workspace, "cron", "jobs.json")
+	cronDB, err := store.Open(workspace)
+	if err != nil {
+		log.Fatalf("Critical error: failed to open store for cron: %v", err)
+	}
 
 	// Create cron service
-	cronService := cron.NewCronService(cronStorePath, nil)
+	cronService := cron.NewCronService(cronDB, nil)
 
 	// Create and register CronTool
 	cronTool, err := tools.NewCronTool(cronService, agentLoop, msgBus, workspace, restrict, execTimeout, cfg)
