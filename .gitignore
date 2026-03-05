@@ -48,3 +48,4 @@ dist/
 # Windows Application Icon/Resource
 *.syso
 .task/*
+**/TestLive_*/*.json

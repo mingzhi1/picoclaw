@@ -1,34 +1,40 @@
+# MetaClaw Docker Compose
+#
+# Minimal (Alpine-only):
+#   docker compose -f docker/docker-compose.yml --profile gateway up
+#
+# Full (with MCP / Node.js / Python):
+#   METACLAW_IMAGE=full docker compose -f docker/docker-compose.yml --profile gateway up
+#
+# First run generates config → edit docker/data/config.json → restart.
+
+x-common: &common
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+    target: ${METACLAW_IMAGE:-minimal}
+  volumes:
+    - ./data:/root/.metaclaw
+  environment:
+    - METACLAW_HOME=/root/.metaclaw
+
 services:
-  # ─────────────────────────────────────────────
-  # PicoClaw Agent (one-shot query)
-  #   docker compose -f docker/docker-compose.yml run --rm picoclaw-agent -m "Hello"
-  # ─────────────────────────────────────────────
-  picoclaw-agent:
-    image: docker.io/sipeed/picoclaw:latest
-    container_name: picoclaw-agent
-    profiles:
-      - agent
-    # Uncomment to access host network; leave commented unless needed.
-    #extra_hosts:
-    #  - "host.docker.internal:host-gateway"
-    volumes:
-      - ./data:/root/.picoclaw
-    entrypoint: ["picoclaw", "agent"]
+  # ── Agent (one-shot) ────────────────────────────
+  #   docker compose -f docker/docker-compose.yml run --rm metaclaw-agent -m "Hello"
+  metaclaw-agent:
+    <<: *common
+    container_name: metaclaw-agent
+    profiles: [agent]
+    entrypoint: ["metaclaw", "agent"]
     stdin_open: true
     tty: true
 
-  # ─────────────────────────────────────────────
-  # PicoClaw Gateway (Long-running Bot)
-  #   docker compose -f docker/docker-compose.yml up picoclaw-gateway
-  # ─────────────────────────────────────────────
-  picoclaw-gateway:
-    image: docker.io/sipeed/picoclaw:latest
-    container_name: picoclaw-gateway
-    restart: on-failure
-    profiles:
-      - gateway
-    # Uncomment to access host network; leave commented unless needed.
-    #extra_hosts:
-    #  - "host.docker.internal:host-gateway"
-    volumes:
-      - ./data:/root/.picoclaw
+  # ── Gateway (long-running bot) ──────────────────
+  #   docker compose -f docker/docker-compose.yml --profile gateway up -d
+  metaclaw-gateway:
+    <<: *common
+    container_name: metaclaw-gateway
+    restart: unless-stopped
+    profiles: [gateway]
+    ports:
+      - "18790:18790"

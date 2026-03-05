@@ -89,6 +89,13 @@ func (al *AgentLoop) runLLMIteration(
 	iteration := 0
 	var finalContent string
 	var toolRecords []ToolCallRecord
+	var cumulativeTokens int // Track total tokens consumed across all iterations
+	// Cost cap: abort if cumulative tokens exceed 2x the agent's context window.
+	// This prevents a tool-call loop from silently burning unlimited quota.
+	costCap := agent.ContextWindow * 2
+	if costCap < 50000 {
+		costCap = 50000 // minimum floor
+	}
 
 	for iteration < agent.MaxIterations {
 		iteration++
@@ -101,8 +108,8 @@ func (al *AgentLoop) runLLMIteration(
 				"max":       agent.MaxIterations,
 			})
 
-		// Build tool definitions
-		providerToolDefs := agent.Tools.ToProviderDefs()
+		// Build tool definitions — filter by Phase 1 tool_hints when available.
+		providerToolDefs := agent.Tools.ToProviderDefsFiltered(opts.ToolHints)
 
 		// Log LLM request details
 		logger.DebugCF("agent", "LLM request",
@@ -175,16 +182,38 @@ func (al *AgentLoop) runLLMIteration(
 				strings.Contains(errMsg, "timed out") ||
 				strings.Contains(errMsg, "timeout exceeded")
 
+			// Detect HTTP 429 / rate-limit errors from any provider.
+			isRateLimitError := strings.Contains(errMsg, "429") ||
+				strings.Contains(errMsg, "rate limit") ||
+				strings.Contains(errMsg, "rate_limit") ||
+				strings.Contains(errMsg, "throttling") ||
+				strings.Contains(errMsg, "too many requests") ||
+				strings.Contains(errMsg, "quota exceeded") ||
+				strings.Contains(errMsg, "allocationquota")
+
 			// Detect real context window / token limit errors, excluding network timeouts.
-			isContextError := !isTimeoutError && (strings.Contains(errMsg, "context_length_exceeded") ||
-				strings.Contains(errMsg, "context window") ||
-				strings.Contains(errMsg, "maximum context length") ||
-				strings.Contains(errMsg, "token limit") ||
-				strings.Contains(errMsg, "too many tokens") ||
-				strings.Contains(errMsg, "max_tokens") ||
-				strings.Contains(errMsg, "invalidparameter") ||
-				strings.Contains(errMsg, "prompt is too long") ||
-				strings.Contains(errMsg, "request too large"))
+			isContextError := !isTimeoutError && !isRateLimitError &&
+				(strings.Contains(errMsg, "context_length_exceeded") ||
+					strings.Contains(errMsg, "context window") ||
+					strings.Contains(errMsg, "maximum context length") ||
+					strings.Contains(errMsg, "token limit") ||
+					strings.Contains(errMsg, "too many tokens") ||
+					strings.Contains(errMsg, "max_tokens") ||
+					strings.Contains(errMsg, "invalidparameter") ||
+					strings.Contains(errMsg, "prompt is too long") ||
+					strings.Contains(errMsg, "request too large"))
+
+			// Rate-limit: exponential backoff (5s, 10s, 20s).
+			if isRateLimitError && retry < maxRetries {
+				backoff := time.Duration(1<<uint(retry)) * 5 * time.Second
+				logger.WarnCF("agent", "Rate limit (429), retrying after backoff", map[string]any{
+					"error":   err.Error(),
+					"retry":   retry,
+					"backoff": backoff.String(),
+				})
+				time.Sleep(backoff)
+				continue
+			}
 
 			if isTimeoutError && retry < maxRetries {
 				backoff := time.Duration(retry+1) * 5 * time.Second
@@ -235,6 +264,28 @@ func (al *AgentLoop) runLLMIteration(
 		}
 
 		go al.handleReasoning(ctx, response.Reasoning, opts.Channel, al.targetReasoningChannelID(opts.Channel))
+
+		// Accumulate token usage from LLM response for cost guard.
+		if response.Usage != nil {
+			cumulativeTokens += response.Usage.TotalTokens
+		}
+		if cumulativeTokens > costCap {
+			logger.WarnCF("agent", "Cost guard: aborting tool loop — cumulative tokens exceeded cap",
+				map[string]any{
+					"cumulative_tokens": cumulativeTokens,
+					"cost_cap":          costCap,
+					"iteration":         iteration,
+					"agent_id":          agent.ID,
+				})
+			// Use the last response content if available, otherwise return error.
+			if response.Content != "" {
+				finalContent = response.Content
+				break
+			}
+			return "", iteration, toolRecords,
+				fmt.Errorf("agent %s exceeded token cost cap (%d tokens over %d iterations)",
+					agent.ID, cumulativeTokens, iteration)
+		}
 
 		logger.DebugCF("agent", "LLM response",
 			map[string]any{
@@ -410,6 +461,15 @@ func (al *AgentLoop) runLLMIteration(
 		}
 	}
 
+	// If we exhausted MaxIterations without a stop response, the model is stuck
+	// in a tool-call loop. Return an error so the caller can surface it properly
+	// instead of silently sending an empty reply to the user.
+	if finalContent == "" {
+		return "", iteration, toolRecords,
+			fmt.Errorf("agent %s exceeded max iterations (%d) without a final response",
+				agent.ID, agent.MaxIterations)
+	}
+
 	return finalContent, iteration, toolRecords, nil
 }
 
@@ -480,15 +540,22 @@ func (al *AgentLoop) forceCompression(agent *AgentInstance, sessionKey string) {
 
 	newHistory := make([]providers.Message, 0, 1+len(keptConversation)+1)
 
-	// Append compression note to the original system prompt instead of adding a new system message
-	// This avoids having two consecutive system messages which some APIs (like Zhipu) reject
+	// Append compression note to the system prompt (index 0).
+	// Guard: only do this if history[0] is actually the system prompt.
+	// Some edge cases (e.g. post-rebuild sessions) could have a different layout.
 	compressionNote := fmt.Sprintf(
 		"\n\n[System Note: Emergency compression dropped %d oldest messages due to context limit]",
 		droppedCount,
 	)
-	enhancedSystemPrompt := history[0]
-	enhancedSystemPrompt.Content = enhancedSystemPrompt.Content + compressionNote
-	newHistory = append(newHistory, enhancedSystemPrompt)
+	firstMsg := history[0]
+	if firstMsg.Role == "system" {
+		firstMsg.Content = firstMsg.Content + compressionNote
+	} else {
+		// history[0] is not a system message — skip modifying it to avoid corruption.
+		logger.WarnCF("agent", "forceCompression: history[0] is not system role, skipping note injection",
+			map[string]any{"role": firstMsg.Role})
+	}
+	newHistory = append(newHistory, firstMsg)
 
 	newHistory = append(newHistory, keptConversation...)
 	newHistory = append(newHistory, history[len(history)-1]) // Last message
@@ -584,13 +651,21 @@ func formatToolsForLog(toolDefs []providers.ToolDefinition) string {
 }
 
 // estimateTokens estimates the number of tokens in a message list.
-// Uses a safe heuristic of 2.5 characters per token to account for CJK and other
+// Uses a safe heuristic of ~2.5 characters per token to account for CJK and other
 // overheads better than the previous 3 chars/token.
+// Includes both message Content and ToolCall Arguments so that tool-heavy
+// sessions are not under-estimated (previously ToolCalls were silently ignored).
 func (al *AgentLoop) estimateTokens(messages []providers.Message) int {
 	totalChars := 0
 	for _, m := range messages {
 		totalChars += utf8.RuneCountInString(m.Content)
+		for _, tc := range m.ToolCalls {
+			if tc.Function != nil {
+				totalChars += utf8.RuneCountInString(tc.Function.Arguments)
+				totalChars += utf8.RuneCountInString(tc.Function.Name)
+			}
+		}
 	}
-	// 2.5 chars per token = totalChars * 2 / 5
-	return totalChars * 2 / 5
+	// Ceiling division: (totalChars * 2 + 4) / 5 avoids rounding small values to 0.
+	return (totalChars*2 + 4) / 5
 }

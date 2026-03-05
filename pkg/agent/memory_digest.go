@@ -214,9 +214,29 @@ func (w *MemoryDigestWorker) extractMemories(ctx context.Context, turns []TurnRe
 	}
 	prompt := fmt.Sprintf(digestPrompt, sb.String())
 
-	resp, err := w.provider.Chat(ctx, []providers.Message{
-		{Role: "user", Content: prompt},
-	}, nil, w.model, map[string]any{"max_tokens": 512, "temperature": 0.1})
+	llmOpts := map[string]any{"max_tokens": 512, "temperature": 0.1}
+	llmMessages := []providers.Message{{Role: "user", Content: prompt}}
+	llmStart := time.Now()
+	resp, err := w.provider.Chat(ctx, llmMessages, nil, w.model, llmOpts)
+
+	// Log prompt/response pair for debugging (prompt_dir).
+	if logger.IsPromptLoggingEnabled() {
+		entry := &logger.PromptEntry{
+			Model:    w.model,
+			Phase:    "digest",
+			Messages: llmMessages,
+			Options:  llmOpts,
+			Latency:  fmt.Sprintf("%dms", time.Since(llmStart).Milliseconds()),
+		}
+		if resp != nil {
+			entry.Response = resp
+		}
+		if err != nil {
+			entry.Error = err.Error()
+		}
+		logger.LogPrompt(entry)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("LLM call: %w", err)
 	}

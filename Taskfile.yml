@@ -1,0 +1,194 @@
+# https://taskfile.dev
+version: "3"
+
+vars:
+  BINARY_NAME: metaclaw
+  BUILD_DIR: build
+  CMD_DIR: cmd/picoclaw
+  INTERNAL: github.com/sipeed/picoclaw/cmd/picoclaw/internal
+
+  # Git / version info  (powershell-safe)
+  VERSION:
+    sh: git describe --tags --always --dirty 2>nul || echo dev
+  GIT_COMMIT:
+    sh: git rev-parse --short=8 HEAD 2>nul || echo dev
+  GO_VERSION:
+    sh: go env GOVERSION
+
+  # Platform detection (task built-in)
+  PLATFORM: "{{OS}}"
+  ARCH: "{{ARCH}}"
+  EXT: '{{if eq OS "windows"}}.exe{{end}}'
+  BINARY_PATH: "{{.BUILD_DIR}}/{{.BINARY_NAME}}-{{.PLATFORM}}-{{.ARCH}}{{.EXT}}"
+
+  # Go settings
+  GO_TAGS: stdjson
+  LDFLAGS: -X {{.INTERNAL}}.version={{.VERSION}} -X {{.INTERNAL}}.gitCommit={{.GIT_COMMIT}} -X {{.INTERNAL}}.goVersion={{.GO_VERSION}} -s -w
+
+env:
+  CGO_ENABLED: "0"
+
+tasks:
+  # ─── Core ──────────────────────────────────────────
+
+  default:
+    desc: Build for current platform
+    deps: [build]
+
+  generate:
+    desc: Run go generate
+    cmds:
+      - go generate ./...
+
+  build:
+    desc: Build binary for current platform
+    deps: [generate]
+    cmds:
+      - go build -v -tags {{.GO_TAGS}} -ldflags "{{.LDFLAGS}}" -o {{.BINARY_PATH}} ./{{.CMD_DIR}}
+
+  run:
+    desc: Build and run
+    deps: [build]
+    cmds:
+      - "{{.BINARY_PATH}} {{.CLI_ARGS}}"
+
+  # ─── Quality ───────────────────────────────────────
+
+  test:
+    desc: Run tests
+    deps: [generate]
+    cmds:
+      - go test ./...
+
+  vet:
+    desc: Run go vet
+    deps: [generate]
+    cmds:
+      - go vet ./...
+
+  fmt:
+    desc: Format code
+    cmds:
+      - golangci-lint fmt
+
+  lint:
+    desc: Run linters
+    cmds:
+      - golangci-lint run
+
+  fix:
+    desc: Fix linting issues
+    cmds:
+      - golangci-lint run --fix
+
+  check:
+    desc: Full pre-commit check (deps + fmt + vet + test)
+    cmds:
+      - task: deps
+      - task: fmt
+      - task: vet
+      - task: test
+
+  # ─── Dependencies ──────────────────────────────────
+
+  deps:
+    desc: Download and verify dependencies
+    cmds:
+      - go mod download
+      - go mod verify
+
+  update-deps:
+    desc: Update dependencies
+    cmds:
+      - go get -u ./...
+      - go mod tidy
+
+  # ─── Install / Uninstall (Linux/macOS) ─────────────
+
+  install:
+    desc: Install binary to ~/.local/bin
+    deps: [build]
+    platforms: [linux, darwin]
+    vars:
+      INSTALL_PREFIX: "{{.HOME}}/.local"
+    cmds:
+      - mkdir -p {{.INSTALL_PREFIX}}/bin
+      - cp {{.BINARY_PATH}} {{.INSTALL_PREFIX}}/bin/{{.BINARY_NAME}}.new
+      - chmod +x {{.INSTALL_PREFIX}}/bin/{{.BINARY_NAME}}.new
+      - mv -f {{.INSTALL_PREFIX}}/bin/{{.BINARY_NAME}}.new {{.INSTALL_PREFIX}}/bin/{{.BINARY_NAME}}
+
+  uninstall:
+    desc: Remove binary from ~/.local/bin
+    platforms: [linux, darwin]
+    vars:
+      INSTALL_PREFIX: "{{.HOME}}/.local"
+    cmds:
+      - rm -f {{.INSTALL_PREFIX}}/bin/{{.BINARY_NAME}}
+
+  # ─── Cross-compile ─────────────────────────────────
+
+  build-all:
+    desc: Build for all platforms
+    deps: [generate]
+    cmds:
+      - task: _xbuild
+        vars: {GOOS: linux, GOARCH: amd64}
+      - task: _xbuild
+        vars: {GOOS: linux, GOARCH: arm64}
+      - task: _xbuild
+        vars: {GOOS: linux, GOARCH: riscv64}
+      - task: _xbuild
+        vars: {GOOS: linux, GOARCH: loong64}
+      - task: _xbuild
+        vars: {GOOS: darwin, GOARCH: arm64}
+      - task: _xbuild
+        vars: {GOOS: windows, GOARCH: amd64}
+
+  _xbuild:
+    internal: true
+    vars:
+      XEXT: '{{if eq .GOOS "windows"}}.exe{{end}}'
+    env:
+      GOOS: "{{.GOOS}}"
+      GOARCH: "{{.GOARCH}}"
+    cmds:
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-{{.GOOS}}-{{.GOARCH}}{{.XEXT}} ./{{.CMD_DIR}}
+
+  # ─── Docker ────────────────────────────────────────
+
+  docker:build:
+    desc: Build Docker image (minimal Alpine)
+    cmds:
+      - docker compose -f docker/docker-compose.yml build
+
+  docker:build-full:
+    desc: Build Docker image with MCP support (Node.js + Python)
+    cmds:
+      - METACLAW_IMAGE=full docker compose -f docker/docker-compose.yml build
+
+  docker:run:
+    desc: Run gateway in Docker
+    cmds:
+      - docker compose -f docker/docker-compose.yml --profile gateway up
+
+  docker:agent:
+    desc: Run agent in Docker (interactive)
+    cmds:
+      - docker compose -f docker/docker-compose.yml run --rm metaclaw-agent
+
+  docker:clean:
+    desc: Clean Docker containers and volumes
+    cmds:
+      - docker compose -f docker/docker-compose.yml down -v
+
+  # ─── Housekeeping ──────────────────────────────────
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - cmd: rd /s /q {{.BUILD_DIR}}
+        platforms: [windows]
+        ignore_error: true
+      - cmd: rm -rf {{.BUILD_DIR}}
+        platforms: [linux, darwin]
+        ignore_error: true

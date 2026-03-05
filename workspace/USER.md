@@ -1,21 +1,14 @@
 # User
 
-Information about user goes here.
+Information about you. MetaClaw reads this on every conversation to personalise responses.
 
 ## Preferences
 
-- Communication style: (casual/formal)
-- Timezone: (your timezone)
-- Language: (your preferred language)
+- Language: (your preferred language, e.g. 中文 / English)
+- Timezone: (e.g. Asia/Shanghai)
+- Communication style: (casual / formal / technical)
 
-## Personal Information
+## About You
 
 - Name: (optional)
-- Location: (optional)
-- Occupation: (optional)
-
-## Learning Goals
-
-- What the user wants to learn from AI
-- Preferred interaction style
-- Areas of interest
+- Role: (optional, e.g. developer, student, researcher)

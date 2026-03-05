@@ -1,4 +1,4 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+﻿// PicoClaw - Ultra-lightweight personal AI agent
 // Inspired by and based on nanobot: https://github.com/HKUDS/nanobot
 // License: MIT
 //
@@ -51,19 +51,25 @@ type AgentLoop struct {
 	memoryDigest   *MemoryDigestWorker    // background memory distillation
 	cache          *kvcache.Store         // persistent KV cache (workspace/cache.db)
 	extensions     *extension.Manager     // optional extension modules (devices, media, voice)
+	// Concurrency control
+	msgSem         chan struct{}           // limits concurrent message processing
+	sessionLocks   sync.Map               // per-session mutex to serialize same-session messages
 }
 
 // processOptions configures how a message is processed
 type processOptions struct {
-	SessionKey      string // Session identifier for history/context
-	Channel         string // Target channel for tool execution
-	ChatID          string // Target chat ID for tool execution
-	UserMessage     string // User message content (may include prefix)
-	DefaultResponse string // Response when LLM returns empty
-	EnableSummary   bool   // Whether to trigger summarization
-	SendResponse    bool   // Whether to send response via bus
-	NoHistory       bool   // If true, don't load session history (for heartbeat)
-	MsgSeqId        uint64 // Global message sequence number
+	SessionKey      string   // Session identifier for history/context
+	Channel         string   // Target channel for tool execution
+	ChatID          string   // Target chat ID for tool execution
+	UserMessage     string   // User message content (may include prefix)
+	DefaultResponse string   // Response when LLM returns empty
+	EnableSummary   bool     // Whether to trigger summarization
+	SendResponse    bool     // Whether to send response via bus
+	NoHistory       bool     // If true, don't load session history (for heartbeat)
+	MsgSeqId        uint64   // Global message sequence number
+	Intent          string   // Phase 1 intent (chat/task/question)
+	Tags            []string // Phase 1 tags 鈥?used for memory retrieval
+	ToolHints       []string // Phase 1 tool_hints 鈥?categories of tools to include (e.g. ["file","web"])
 }
 
 const defaultResponse = "I've completed processing but have no response to give. Increase `max_tool_iterations` in config.json."
@@ -136,7 +142,7 @@ func NewAgentLoop(
 	}
 	extMgr.Register(voice.New())
 
-	// Init extensions — each gets its own config map.
+	// Init extensions 鈥?each gets its own config map.
 	if defaultAgent != nil {
 		sttCfg := resolveSttConfig(cfg)
 
@@ -188,6 +194,28 @@ func NewAgentLoop(
 		memoryDigest: digestWorker,
 		cache:        kvCache,
 		extensions:   extMgr,
+		msgSem:       make(chan struct{}, 4), // max 4 concurrent message handlers
+	}
+}
+
+// Close releases resources held by the AgentLoop (database connections, etc.).
+// Call this in tests or on graceful shutdown to avoid file-lock errors on Windows.
+func (al *AgentLoop) Close() {
+	if al.cache != nil {
+		al.cache.Close()
+	}
+	if al.turnStore != nil {
+		al.turnStore.Close()
+	}
+	// Close each agent's MemoryStore to release SQLite file locks.
+	if al.registry != nil {
+		for _, id := range al.registry.ListAgentIDs() {
+			if agent, ok := al.registry.GetAgent(id); ok && agent.ContextBuilder != nil {
+				if mem := agent.ContextBuilder.GetMemory(); mem != nil {
+					mem.Close()
+				}
+			}
+		}
 	}
 }
 
@@ -373,31 +401,31 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				continue
 			}
 
-			// Process message
-			func() {
-				// TODO: Re-enable media cleanup after inbound media is properly consumed by the agent.
-				// Currently disabled because files are deleted before the LLM can access their content.
-				// defer func() {
-				// 	if al.mediaStore != nil && msg.MediaScope != "" {
-				// 		if releaseErr := al.mediaStore.ReleaseAll(msg.MediaScope); releaseErr != nil {
-				// 			logger.WarnCF("agent", "Failed to release media", map[string]any{
-				// 				"scope": msg.MediaScope,
-				// 				"error": releaseErr.Error(),
-				// 			})
-				// 		}
-				// 	}
-				// }()
+			// Acquire concurrency semaphore (blocks if maxConcurrent goroutines active).
+			al.msgSem <- struct{}{}
 
-				response, err := al.processMessage(ctx, msg)
+			// Process message in a goroutine so other channels aren't blocked.
+			go func(m bus.InboundMessage) {
+				defer func() { <-al.msgSem }() // release semaphore
+
+				// Per-session lock: messages within the same session must run serially
+				// to maintain conversation coherence.
+				sessionKey := m.SessionKey
+				if sessionKey == "" {
+					sessionKey = fmt.Sprintf("%s:%s", m.Channel, m.ChatID)
+				}
+				muI, _ := al.sessionLocks.LoadOrStore(sessionKey, &sync.Mutex{})
+				mu := muI.(*sync.Mutex)
+				mu.Lock()
+				defer mu.Unlock()
+
+				response, err := al.processMessage(ctx, m)
 				if err != nil {
 					response = fmt.Sprintf("Error processing message: %v", err)
 				}
 
 				if response != "" {
 					// Check if ANY agent's message tool already sent a response during this round.
-					// If so, skip publishing to avoid duplicate messages to the user.
-					// Must check all agents, not just default, because the message may have
-					// been routed to a non-default agent.
 					alreadySent := false
 					for _, agentID := range al.registry.ListAgentIDs() {
 						if a, ok := al.registry.GetAgent(agentID); ok {
@@ -414,25 +442,25 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 
 					if !alreadySent {
 						al.bus.PublishOutbound(ctx, bus.OutboundMessage{
-							Channel: msg.Channel,
-							ChatID:  msg.ChatID,
+							Channel: m.Channel,
+							ChatID:  m.ChatID,
 							Content: response,
 						})
 						logger.InfoCF("agent", "Published outbound response",
 							map[string]any{
-								"channel":     msg.Channel,
-								"chat_id":     msg.ChatID,
+								"channel":     m.Channel,
+								"chat_id":     m.ChatID,
 								"content_len": len(response),
 							})
 					} else {
 						logger.DebugCF(
 							"agent",
 							"Skipped outbound (message tool already sent)",
-							map[string]any{"channel": msg.Channel},
+							map[string]any{"channel": m.Channel},
 						)
 					}
 				}
-			}()
+			}(msg)
 		}
 	}
 
@@ -467,126 +495,6 @@ func (al *AgentLoop) Stop() {
 	if al.extensions != nil {
 		al.extensions.StopAll()
 	}
-}
-
-// Cache returns the persistent KV cache, or nil if unavailable.
-func (al *AgentLoop) Cache() *kvcache.Store {
-	return al.cache
-}
-
-func (al *AgentLoop) RegisterTool(tool tools.Tool) {
-	for _, agentID := range al.registry.ListAgentIDs() {
-		if agent, ok := al.registry.GetAgent(agentID); ok {
-			agent.Tools.Register(tool)
-		}
-	}
-}
-
-func (al *AgentLoop) SetChannelManager(cm *channels.Manager) {
-	al.channelManager = cm
-	// Wire agent info into all agent Runtimes so /show, /list, /switch work.
-	for _, id := range al.registry.ListAgentIDs() {
-		if agent, ok := al.registry.GetAgent(id); ok && agent != nil && agent.Reflector != nil {
-			agent.Reflector.SetAgentInfo(al.registry, cm)
-		}
-	}
-}
-
-// SetMediaStore injects a MediaStore for media lifecycle management.
-func (al *AgentLoop) SetMediaStore(s media.MediaStore) {
-	al.mediaStore = s
-}
-
-// inferMediaType determines the media type ("image", "audio", "video", "file")
-// from a filename and MIME content type.
-func inferMediaType(filename, contentType string) string {
-	ct := strings.ToLower(contentType)
-	fn := strings.ToLower(filename)
-
-	if strings.HasPrefix(ct, "image/") {
-		return "image"
-	}
-	if strings.HasPrefix(ct, "audio/") || ct == "application/ogg" {
-		return "audio"
-	}
-	if strings.HasPrefix(ct, "video/") {
-		return "video"
-	}
-
-	// Fallback: infer from extension
-	ext := filepath.Ext(fn)
-	switch ext {
-	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg":
-		return "image"
-	case ".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma", ".opus":
-		return "audio"
-	case ".mp4", ".avi", ".mov", ".webm", ".mkv":
-		return "video"
-	}
-
-	return "file"
-}
-
-// RecordLastChannel records the last active channel for this workspace.
-// This uses the atomic state save mechanism to prevent data loss on crash.
-func (al *AgentLoop) RecordLastChannel(channel string) error {
-	if al.state == nil {
-		return nil
-	}
-	return al.state.SetLastChannel(channel)
-}
-
-// RecordLastChatID records the last active chat ID for this workspace.
-// This uses the atomic state save mechanism to prevent data loss on crash.
-func (al *AgentLoop) RecordLastChatID(chatID string) error {
-	if al.state == nil {
-		return nil
-	}
-	return al.state.SetLastChatID(chatID)
-}
-
-func (al *AgentLoop) ProcessDirect(
-	ctx context.Context,
-	content, sessionKey string,
-) (string, error) {
-	return al.ProcessDirectWithChannel(ctx, content, sessionKey, "cli", "direct")
-}
-
-func (al *AgentLoop) ProcessDirectWithChannel(
-	ctx context.Context,
-	content, sessionKey, channel, chatID string,
-) (string, error) {
-	msg := bus.InboundMessage{
-		Channel:    channel,
-		SenderID:   "cron",
-		ChatID:     chatID,
-		Content:    content,
-		SessionKey: sessionKey,
-	}
-
-	return al.processMessage(ctx, msg)
-}
-
-// ProcessHeartbeat processes a heartbeat request without session history.
-// Each heartbeat is independent and doesn't accumulate context.
-func (al *AgentLoop) ProcessHeartbeat(
-	ctx context.Context,
-	content, channel, chatID string,
-) (string, error) {
-	agent := al.registry.GetDefaultAgent()
-	if agent == nil {
-		return "", fmt.Errorf("no default agent for heartbeat")
-	}
-	return al.runAgentLoop(ctx, agent, processOptions{
-		SessionKey:      "heartbeat",
-		Channel:         channel,
-		ChatID:          chatID,
-		UserMessage:     content,
-		DefaultResponse: defaultResponse,
-		EnableSummary:   false,
-		SendResponse:    false,
-		NoHistory:       true, // Don't load session history for heartbeat
-	})
 }
 
 func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage) (string, error) {
@@ -792,8 +700,19 @@ func (al *AgentLoop) runAgentLoop(
 		dynamicCtx := agent.ContextBuilder.buildDynamicContext(opts.Channel, opts.ChatID)
 		systemPrompt := staticPrompt + "\n\n---\n\n" + dynamicCtx
 
-		// Enrich system prompt with CoT strategy.
-		if analyseResult.CotPrompt != "" {
+		// Enrich system prompt with CoT 鈥?template + task-specific supplement.
+		if analyseResult.CotID != "" && agent.Analyser != nil {
+			if reg := agent.Analyser.GetCotRegistry(); reg != nil {
+				tpl := reg.Get(analyseResult.CotID)
+				if tpl.Prompt != "" {
+					systemPrompt += "\n\n---\n\n" + tpl.Prompt
+				}
+			}
+			if analyseResult.CotPrompt != "" {
+				systemPrompt += "\n\n### Task-Specific Notes\n\n" + analyseResult.CotPrompt
+			}
+		} else if analyseResult.CotPrompt != "" {
+			// Legacy fallback: raw CoT prompt (no template selected).
 			systemPrompt += "\n\n---\n\n## Thinking Strategy\n\n" + analyseResult.CotPrompt
 		}
 
@@ -862,13 +781,41 @@ func (al *AgentLoop) runAgentLoop(
 			analyseResult = agent.Analyser.Analyse(ctx, opts.UserMessage, agent.ContextBuilder.GetMemory(), actCtx)
 
 			var enrichment strings.Builder
-			if analyseResult.CotPrompt != "" {
+			// CoT injection: template + task-specific supplement (hybrid mode).
+			if analyseResult.CotID != "" {
+				if reg := agent.Analyser.GetCotRegistry(); reg != nil {
+					tpl := reg.Get(analyseResult.CotID)
+					if tpl.Prompt != "" {
+						enrichment.WriteString("\n\n---\n\n")
+						enrichment.WriteString(tpl.Prompt)
+					}
+				}
+				if analyseResult.CotPrompt != "" {
+					enrichment.WriteString("\n\n### Task-Specific Notes\n\n")
+					enrichment.WriteString(analyseResult.CotPrompt)
+				}
+			} else if analyseResult.CotPrompt != "" {
+				// Legacy fallback: raw CoT prompt (no template selected).
 				enrichment.WriteString("\n\n---\n\n## Thinking Strategy\n\n")
 				enrichment.WriteString(analyseResult.CotPrompt)
 			}
 			if analyseResult.MemoryContext != "" {
 				enrichment.WriteString("\n\n---\n\n# Contextual Memories (pre-analysed)\n\n")
 				enrichment.WriteString(analyseResult.MemoryContext)
+			}
+
+			// Skill matching 鈥?inject tool execution plan (same as Path A).
+			if matched := agent.ContextBuilder.MatchSkillByMessage(opts.UserMessage); matched != nil {
+				if plan := FormatToolSteps(matched.ToolSteps, matched.Path); plan != "" {
+					enrichment.WriteString("\n\n---\n\n")
+					enrichment.WriteString(plan)
+					logger.InfoCF("agent", "Injected tool execution plan from skill (legacy path)",
+						map[string]any{
+							"skill":      matched.Name,
+							"steps":      len(matched.ToolSteps),
+							"skill_path": matched.Path,
+						})
+				}
 			}
 
 			if enrichment.Len() > 0 && len(messages) > 0 && messages[0].Role == "system" {
@@ -897,6 +844,11 @@ func (al *AgentLoop) runAgentLoop(
 	// In Instant Memory mode, session is only kept for debug commands (/show);
 	// no summarization needed since TurnStore handles context selection.
 	agent.Sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
+
+	// Propagate Phase 1 analysis results to executor for intent-based tool filtering.
+	opts.Intent = analyseResult.Intent
+	opts.Tags = analyseResult.Tags
+	opts.ToolHints = analyseResult.ToolHints
 
 	// 4. Run LLM iteration loop
 	finalContent, iteration, toolRecords, err := al.runLLMIteration(ctx, agent, messages, opts)
@@ -928,7 +880,7 @@ func (al *AgentLoop) runAgentLoop(
 		ChannelKey:     channelKey,
 	}
 
-	// 6.5. Phase 3 — Synchronous part (< 2ms): score + Active Context update.
+	// 6.5. Phase 3 鈥?Synchronous part (< 2ms): score + Active Context update.
 	// MUST run before PublishOutbound so the next turn's Phase 1 sees fresh context.
 	if agent.Reflector != nil && opts.UserMessage != "" {
 		score := agent.Reflector.SyncPhase3(runtimeInput)
@@ -940,7 +892,7 @@ func (al *AgentLoop) runAgentLoop(
 		}
 	}
 
-	// 7. Optional: summarization — ONLY for legacy path.
+	// 7. Optional: summarization 鈥?ONLY for legacy path.
 	// Instant Memory mode uses TurnStore for context selection, so session
 	// summarization is unnecessary and would waste LLM calls.
 	if opts.EnableSummary && !useInstantMemory {
@@ -956,7 +908,7 @@ func (al *AgentLoop) runAgentLoop(
 		})
 	}
 
-	// 6.6. Phase 3 — Async part: persist TurnRecord, run processors.
+	// 6.6. Phase 3 鈥?Async part: persist TurnRecord, run processors.
 	// Runs AFTER PublishOutbound to not delay the user response.
 	if agent.Reflector != nil && opts.UserMessage != "" {
 		agent.Reflector.AsyncPhase3(runtimeInput, agent.ContextBuilder.GetMemory(), al.turnStore, al.activeCtx)
@@ -975,188 +927,3 @@ func (al *AgentLoop) runAgentLoop(
 
 	return finalContent, nil
 }
-
-// summarizeSession summarizes the conversation history for a session.
-func (al *AgentLoop) summarizeSession(agent *AgentInstance, sessionKey string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
-
-	history := agent.Sessions.GetHistory(sessionKey)
-	summary := agent.Sessions.GetSummary(sessionKey)
-
-	// Keep last 4 messages for continuity
-	if len(history) <= 4 {
-		return
-	}
-
-	toSummarize := history[:len(history)-4]
-
-	// Oversized Message Guard
-	maxMessageTokens := agent.ContextWindow / 2
-	validMessages := make([]providers.Message, 0)
-	omitted := false
-
-	for _, m := range toSummarize {
-		if m.Role != "user" && m.Role != "assistant" {
-			continue
-		}
-		msgTokens := len(m.Content) / 2
-		if msgTokens > maxMessageTokens {
-			omitted = true
-			continue
-		}
-		validMessages = append(validMessages, m)
-	}
-
-	if len(validMessages) == 0 {
-		return
-	}
-
-	// Multi-Part Summarization
-	var finalSummary string
-	if len(validMessages) > 10 {
-		mid := len(validMessages) / 2
-		part1 := validMessages[:mid]
-		part2 := validMessages[mid:]
-
-		s1, _ := al.summarizeBatch(ctx, agent, part1, "")
-		s2, _ := al.summarizeBatch(ctx, agent, part2, "")
-
-		mergePrompt := fmt.Sprintf(
-			"Merge these two conversation summaries into one cohesive summary:\n\n1: %s\n\n2: %s",
-			s1,
-			s2,
-		)
-		resp, err := agent.Provider.Chat(
-			ctx,
-			[]providers.Message{{Role: "user", Content: mergePrompt}},
-			nil,
-			agent.Model,
-			map[string]any{
-				"max_tokens":       1024,
-				"temperature":      0.3,
-				"prompt_cache_key": agent.ID,
-			},
-		)
-		if err == nil {
-			finalSummary = resp.Content
-		} else {
-			finalSummary = s1 + " " + s2
-		}
-	} else {
-		finalSummary, _ = al.summarizeBatch(ctx, agent, validMessages, summary)
-	}
-
-	if omitted && finalSummary != "" {
-		finalSummary += "\n[Note: Some oversized messages were omitted from this summary for efficiency.]"
-	}
-
-	if finalSummary != "" {
-		agent.Sessions.SetSummary(sessionKey, finalSummary)
-		agent.Sessions.TruncateHistory(sessionKey, 4)
-		agent.Sessions.Save(sessionKey)
-	}
-}
-
-// summarizeBatch summarizes a batch of messages.
-func (al *AgentLoop) summarizeBatch(
-	ctx context.Context,
-	agent *AgentInstance,
-	batch []providers.Message,
-	existingSummary string,
-) (string, error) {
-	var sb strings.Builder
-	sb.WriteString(
-		"Provide a concise summary of this conversation segment, preserving core context and key points.\n",
-	)
-	if existingSummary != "" {
-		sb.WriteString("Existing context: ")
-		sb.WriteString(existingSummary)
-		sb.WriteString("\n")
-	}
-	sb.WriteString("\nCONVERSATION:\n")
-	for _, m := range batch {
-		fmt.Fprintf(&sb, "%s: %s\n", m.Role, m.Content)
-	}
-	prompt := sb.String()
-
-	response, err := agent.Provider.Chat(
-		ctx,
-		[]providers.Message{{Role: "user", Content: prompt}},
-		nil,
-		agent.Model,
-		map[string]any{
-			"max_tokens":       1024,
-			"temperature":      0.3,
-			"prompt_cache_key": agent.ID,
-		},
-	)
-	if err != nil {
-		return "", err
-	}
-	return response.Content, nil
-}
-
-
-
-
-// extractPeer extracts the routing peer from the inbound message's structured Peer field.
-func extractPeer(msg bus.InboundMessage) *routing.RoutePeer {
-	if msg.Peer.Kind == "" {
-		return nil
-	}
-	peerID := msg.Peer.ID
-	if peerID == "" {
-		if msg.Peer.Kind == "direct" {
-			peerID = msg.SenderID
-		} else {
-			peerID = msg.ChatID
-		}
-	}
-	return &routing.RoutePeer{Kind: msg.Peer.Kind, ID: peerID}
-}
-
-// extractParentPeer extracts the parent peer (reply-to) from inbound message metadata.
-func extractParentPeer(msg bus.InboundMessage) *routing.RoutePeer {
-	parentKind := msg.Metadata["parent_peer_kind"]
-	parentID := msg.Metadata["parent_peer_id"]
-	if parentKind == "" || parentID == "" {
-		return nil
-	}
-	return &routing.RoutePeer{Kind: parentKind, ID: parentID}
-}
-
-// activeContextPath returns the full path for the active_context.json file
-// stored inside the workspace directory.
-func activeContextPath(workspace string) string {
-	return filepath.Join(workspace, "active_context.json")
-}
-
-// resolveSttConfig builds the config map for the voice extension by looking up
-// the stt_model entry in config.ModelList.
-// Returns a map suitable for extension.ExtensionContext.Config.
-// If stt_model is empty or not found, returns a map without api_base so the
-// voice extension gracefully disables itself.
-func resolveSttConfig(cfg *config.Config) map[string]any {
-	sttModel := cfg.Agents.Defaults.GetSTTModel()
-	result := map[string]any{
-		"stt_model": sttModel,
-	}
-	if sttModel == "" {
-		return result
-	}
-
-	mc, err := cfg.GetModelConfig(sttModel)
-	if err != nil {
-		logger.WarnCF("agent", "stt_model not found in model_list — STT disabled",
-			map[string]any{"stt_model": sttModel, "error": err.Error()})
-		return result
-	}
-
-	result["api_base"] = mc.APIBase
-	result["api_key"] = mc.APIKey
-	result["model"] = mc.Model
-	return result
-}
-
-

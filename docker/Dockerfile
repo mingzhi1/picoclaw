@@ -1,43 +1,61 @@
 # ============================================================
-# Stage 1: Build the picoclaw binary
+# Stage 1: Build the metaclaw binary
 # ============================================================
 FROM golang:1.25-alpine AS builder
 
-RUN apk add --no-cache git make
+RUN apk add --no-cache git
 
 WORKDIR /src
 
-# Cache dependencies
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source and build
 COPY . .
-RUN make build
+
+RUN CGO_ENABLED=0 go generate ./... && \
+    CGO_ENABLED=0 go build -tags stdjson \
+      -ldflags "-s -w" \
+      -o /metaclaw ./cmd/picoclaw
 
 # ============================================================
-# Stage 2: Minimal runtime image
+# Stage 2a: Minimal runtime (default)
 # ============================================================
-FROM alpine:3.23
+FROM alpine:3.21 AS minimal
 
-RUN apk add --no-cache ca-certificates tzdata curl
+RUN apk add --no-cache ca-certificates tzdata
 
-# Health check
+COPY --from=builder /metaclaw /usr/local/bin/metaclaw
+
+RUN addgroup -g 1000 metaclaw && \
+    adduser -D -u 1000 -G metaclaw metaclaw
+
+USER metaclaw
+
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget -q --spider http://localhost:18790/health || exit 1
 
-# Copy binary
-COPY --from=builder /src/build/picoclaw /usr/local/bin/picoclaw
+COPY docker/entrypoint.sh /entrypoint.sh
 
-# Create non-root user and group
-RUN addgroup -g 1000 picoclaw && \
-    adduser -D -u 1000 -G picoclaw picoclaw
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["gateway"]
 
-# Switch to non-root user
-USER picoclaw
+# ============================================================
+# Stage 2b: Full runtime with MCP support (Node.js + Python)
+#   docker build --target full -f docker/Dockerfile .
+# ============================================================
+FROM node:24-alpine3.21 AS full
 
-# Run onboard to create initial directories and config
-RUN /usr/local/bin/picoclaw onboard
+RUN apk add --no-cache ca-certificates curl git python3 py3-pip && \
+    curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    ln -s /root/.local/bin/uv /usr/local/bin/uv && \
+    ln -s /root/.local/bin/uvx /usr/local/bin/uvx
 
-ENTRYPOINT ["picoclaw"]
+COPY --from=builder /metaclaw /usr/local/bin/metaclaw
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -q --spider http://localhost:18790/health || exit 1
+
+COPY docker/entrypoint.sh /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["gateway"]

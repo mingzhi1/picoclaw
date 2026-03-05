@@ -192,6 +192,63 @@ func (r *ToolRegistry) ToProviderDefs() []providers.ToolDefinition {
 	return definitions
 }
 
+// toolCategory maps tool names to their categories.
+// The Analyser outputs tool_hints using these categories.
+// Tools not in this map are considered "always-on" and always included.
+var toolCategory = map[string]string{
+	"read_file":     "file",
+	"write_file":    "file",
+	"edit_file":     "file",
+	"append_file":   "file",
+	"list_dir":      "file",
+	"exec":          "exec",
+	"web_search":    "web",
+	"web_fetch":     "web",
+	"find_skills":   "skill",
+	"install_skill": "skill",
+	"spawn":         "spawn",
+	"message":       "message",
+	"i2c":           "device",
+	"spi":           "device",
+}
+
+// ToProviderDefsFiltered returns tool definitions filtered by tool_hints.
+//
+// toolHints is a list of categories output by Phase 1 Analyser (e.g. ["file", "web"]).
+//   - When toolHints is empty or nil, ALL tools are returned (backward compatible).
+//   - When toolHints contains categories, only matching tools + uncategorised tools
+//     (MCP, extensions) are included.
+//
+// This avoids sending unnecessary tool schemas to the LLM (~200-350 tokens each).
+func (r *ToolRegistry) ToProviderDefsFiltered(toolHints []string) []providers.ToolDefinition {
+	// No hints → send everything (backward compatible / Phase 1 not active).
+	if len(toolHints) == 0 {
+		return r.ToProviderDefs()
+	}
+
+	// Build a set of allowed categories.
+	allowed := make(map[string]bool, len(toolHints))
+	for _, h := range toolHints {
+		allowed[h] = true
+	}
+
+	all := r.ToProviderDefs()
+	filtered := make([]providers.ToolDefinition, 0, len(all))
+	for _, td := range all {
+		name := td.Function.Name
+		cat, hasCat := toolCategory[name]
+		if !hasCat {
+			// Uncategorised tools (MCP, extensions) are always included.
+			filtered = append(filtered, td)
+			continue
+		}
+		if allowed[cat] {
+			filtered = append(filtered, td)
+		}
+	}
+	return filtered
+}
+
 // List returns a list of all registered tool names.
 func (r *ToolRegistry) List() []string {
 	r.mu.RLock()

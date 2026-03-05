@@ -1,15 +1,17 @@
 #!/bin/sh
 set -e
 
+METACLAW_HOME="${METACLAW_HOME:-${HOME}/.metaclaw}"
+
 # First-run: neither config nor workspace exists.
-# If config.json is already mounted but workspace is missing we skip onboard to
-# avoid the interactive "Overwrite? (y/n)" prompt hanging in a non-TTY container.
-if [ ! -d "${HOME}/.picoclaw/workspace" ] && [ ! -f "${HOME}/.picoclaw/config.json" ]; then
-    picoclaw onboard
+# If config.json is already mounted but workspace is missing we skip onboard
+# to avoid the interactive prompt hanging in a non-TTY container.
+if [ ! -d "${METACLAW_HOME}/workspace" ] && [ ! -f "${METACLAW_HOME}/config.json" ]; then
+    metaclaw onboard
     echo ""
     echo "First-run setup complete."
-    echo "Edit ${HOME}/.picoclaw/config.json (add your API key, etc.) then restart the container."
+    echo "Edit ${METACLAW_HOME}/config.json (add your API key, etc.) then restart the container."
     exit 0
 fi
 
-exec picoclaw gateway "$@"
+exec metaclaw "$@"
