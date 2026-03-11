@@ -928,7 +928,7 @@ func (al *AgentLoop) runAgentLoop(
 	opts.ToolHints = analyseResult.ToolHints
 
 	// 4. Run LLM iteration loop
-	finalContent, iteration, toolRecords, err := al.runLLMIteration(ctx, agent, messages, opts)
+	finalContent, iteration, toolRecords, totalTokens, err := al.runLLMIteration(ctx, agent, messages, opts)
 	if err != nil {
 		return "", err
 	}
@@ -955,6 +955,7 @@ func (al *AgentLoop) runAgentLoop(
 		ToolCalls:      toolRecords,
 		Iterations:     iteration,
 		ChannelKey:     channelKey,
+		TotalTokens:    totalTokens,
 	}
 
 	// 6.5. Phase 3 鈥?Synchronous part (< 2ms): score + Active Context update.

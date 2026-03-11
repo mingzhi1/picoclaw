@@ -8,7 +8,9 @@ package agent
 import (
 	"fmt"
 	"strings"
+	"time"
 )
+
 
 // ===========================================================================
 // Built-in slash commands
@@ -430,3 +432,103 @@ func (r *Reflector) cmdSwitch(args []string, _ *MemoryStore) string {
 		return fmt.Sprintf("Unknown switch target: %s", target)
 	}
 }
+
+// --- /tokens ----------------------------------------------------------------
+
+func (r *Reflector) cmdTokens(args []string, _ *MemoryStore) string {
+	r.mu.RLock()
+	ts := r.turnStore
+	r.mu.RUnlock()
+
+	if ts == nil {
+		return "⚠️ TurnStore not available (instant memory not enabled?)"
+	}
+
+	subCmd := "today"
+	if len(args) > 0 {
+		subCmd = args[0]
+	}
+
+	formatTokens := func(n int) string {
+		if n >= 1_000_000 {
+			return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+		}
+		if n >= 1_000 {
+			return fmt.Sprintf("%.1fK", float64(n)/1_000)
+		}
+		return fmt.Sprintf("%d", n)
+	}
+
+	var sinceUnix int64
+	var label string
+
+	switch subCmd {
+	case "today":
+		now := nowFunc()
+		y, m, d := now.Date()
+		sinceUnix = time.Date(y, m, d, 0, 0, 0, 0, now.Location()).Unix()
+		label = "Today"
+	case "week":
+		sinceUnix = nowFunc().AddDate(0, 0, -7).Unix()
+		label = "Last 7 days"
+	case "all":
+		sinceUnix = 0
+		label = "All time"
+	case "channel":
+		// /tokens channel [since:today|week|all]
+		sinceUnix = 0
+		label = "All time"
+		if len(args) > 1 {
+			switch args[1] {
+			case "today":
+				now := nowFunc()
+				y, m, d := now.Date()
+				sinceUnix = time.Date(y, m, d, 0, 0, 0, 0, now.Location()).Unix()
+				label = "Today"
+			case "week":
+				sinceUnix = nowFunc().AddDate(0, 0, -7).Unix()
+				label = "Last 7 days"
+			}
+		}
+		rows, err := ts.QueryTokenStatsByChannel(sinceUnix, 10)
+		if err != nil {
+			return fmt.Sprintf("❌ Query failed: %v", err)
+		}
+		if len(rows) == 0 {
+			return fmt.Sprintf("📊 No token data for period: %s", label)
+		}
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "📊 **Token Usage by Channel** (%s)\n\n", label)
+		for _, row := range rows {
+			ck := row.ChannelKey
+			if ck == "" {
+				ck = "(unknown)"
+			}
+			fmt.Fprintf(&sb, "• `%s`: %s tokens / %d turns\n",
+				ck, formatTokens(row.TotalTokens), row.Turns)
+		}
+		return sb.String()
+	default:
+		return "Usage: /tokens [today|week|all|channel [today|week|all]]"
+	}
+
+	st, err := ts.QueryTokenStats(sinceUnix)
+	if err != nil {
+		return fmt.Sprintf("❌ Query failed: %v", err)
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "📊 **Token Usage** (%s)\n\n", label)
+	fmt.Fprintf(&sb, "• Turns:   %d\n", st.Turns)
+	fmt.Fprintf(&sb, "• Total:   %s tokens\n", formatTokens(st.TotalTokens))
+	if st.Turns > 0 {
+		fmt.Fprintf(&sb, "• Avg/turn: %s tokens\n", formatTokens(st.AvgTokens))
+	}
+	if st.TotalTokens == 0 && st.Turns == 0 {
+		sb.WriteString("\n_No turns recorded yet for this period._")
+	}
+	return sb.String()
+}
+
+// nowFunc is used internally so tests can override the current time.
+var nowFunc = time.Now
+

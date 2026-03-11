@@ -45,6 +45,7 @@ type RuntimeInput struct {
 	Iterations     int // Number of LLM iterations used
 	Score          int // Phase 3 CalcTurnScore result (set by SyncPhase3)
 	ChannelKey     string // "channel:chatID" (set by runAgentLoop)
+	TotalTokens    int // Cumulative real API token usage for this turn (0 if unavailable)
 }
 
 // ToolCallRecord captures one tool invocation and its outcome.
@@ -87,6 +88,7 @@ type Reflector struct {
 	shellInstance  *tools.ShellInstance   // Consolidated shell execution
 	agentRegistry  *AgentRegistry         // For /show, /list, /switch
 	channelManager *channels.Manager      // For /list channels, /switch channel
+	turnStore      *TurnStore             // For /tokens stats
 }
 
 
@@ -156,6 +158,12 @@ func NewReflector(provider providers.LLMProvider, model string) *Reflector {
 		Description: "Switch model or channel",
 		Handler:     r.cmdSwitch,
 	})
+	r.RegisterCommand(CommandDef{
+		Name:        "tokens",
+		Usage:       "/tokens [today|week|all|channel <key>]",
+		Description: "Token usage statistics from turn history",
+		Handler:     r.cmdTokens,
+	})
 
 	return r
 }
@@ -199,6 +207,13 @@ func (r *Reflector) SetAgentInfo(reg *AgentRegistry, cm *channels.Manager) {
 	defer r.mu.Unlock()
 	r.agentRegistry = reg
 	r.channelManager = cm
+}
+
+// SetTurnStore provides the Reflector with access to the TurnStore for token stats.
+func (r *Reflector) SetTurnStore(ts *TurnStore) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.turnStore = ts
 }
 
 // ---------------------------------------------------------------------------
@@ -257,6 +272,7 @@ func (r *Reflector) AsyncPhase3(input RuntimeInput, memory *MemoryStore, turnSto
 				Score:      input.Score,
 				Intent:     input.Intent,
 				Tags:       input.Tags,
+				Tokens:     input.TotalTokens, // real API usage; estimateTokens() used as fallback when 0
 				Status:     "pending",
 				UserMsg:    sanitizeUserMsg(input.UserMessage),
 				Reply:      sanitizeReply(input.AssistantReply),

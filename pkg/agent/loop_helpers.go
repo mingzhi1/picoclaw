@@ -44,9 +44,14 @@ func (al *AgentLoop) SetChannelManager(cm *channels.Manager) {
 	for _, id := range al.registry.ListAgentIDs() {
 		if agent, ok := al.registry.GetAgent(id); ok && agent != nil && agent.Reflector != nil {
 			agent.Reflector.SetAgentInfo(al.registry, cm)
+			// Wire TurnStore so /tokens can query historical token usage.
+			if al.turnStore != nil {
+				agent.Reflector.SetTurnStore(al.turnStore)
+			}
 		}
 	}
 }
+
 
 // SetMediaStore injects a MediaStore for media lifecycle management.
 func (al *AgentLoop) SetMediaStore(s media.MediaStore) {

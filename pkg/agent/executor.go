@@ -85,7 +85,7 @@ func (al *AgentLoop) runLLMIteration(
 	agent *AgentInstance,
 	messages []providers.Message,
 	opts processOptions,
-) (string, int, []ToolCallRecord, error) {
+) (string, int, []ToolCallRecord, int, error) {
 	iteration := 0
 	var finalContent string
 	var toolRecords []ToolCallRecord
@@ -260,7 +260,7 @@ func (al *AgentLoop) runLLMIteration(
 					"iteration": iteration,
 					"error":     err.Error(),
 				})
-			return "", iteration, toolRecords, fmt.Errorf("LLM call failed after retries: %w", err)
+			return "", iteration, toolRecords, cumulativeTokens, fmt.Errorf("LLM call failed after retries: %w", err)
 		}
 
 		go al.handleReasoning(ctx, response.Reasoning, opts.Channel, al.targetReasoningChannelID(opts.Channel))
@@ -282,7 +282,7 @@ func (al *AgentLoop) runLLMIteration(
 				finalContent = response.Content
 				break
 			}
-			return "", iteration, toolRecords,
+			return "", iteration, toolRecords, cumulativeTokens,
 				fmt.Errorf("agent %s exceeded token cost cap (%d tokens over %d iterations)",
 					agent.ID, cumulativeTokens, iteration)
 		}
@@ -465,12 +465,12 @@ func (al *AgentLoop) runLLMIteration(
 	// in a tool-call loop. Return an error so the caller can surface it properly
 	// instead of silently sending an empty reply to the user.
 	if finalContent == "" {
-		return "", iteration, toolRecords,
+		return "", iteration, toolRecords, cumulativeTokens,
 			fmt.Errorf("agent %s exceeded max iterations (%d) without a final response",
 				agent.ID, agent.MaxIterations)
 	}
 
-	return finalContent, iteration, toolRecords, nil
+	return finalContent, iteration, toolRecords, cumulativeTokens, nil
 }
 
 // updateToolContexts updates the context for tools that need channel/chatID info.

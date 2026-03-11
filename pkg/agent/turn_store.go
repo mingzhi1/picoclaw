@@ -403,6 +403,83 @@ func (s *TurnStore) ArchiveOldProcessed(olderThanDays int) error {
 }
 
 // ---------------------------------------------------------------------------
+// Token statistics
+// ---------------------------------------------------------------------------
+
+// TokenStats holds aggregated token usage.
+type TokenStats struct {
+	Turns       int
+	TotalTokens int
+	AvgTokens   int
+}
+
+// QueryTokenStats returns aggregated token usage for the given time window.
+// sinceUnix = 0 means all-time.
+func (s *TurnStore) QueryTokenStats(sinceUnix int64) (TokenStats, error) {
+	var (
+		q    string
+		args []any
+	)
+	if sinceUnix > 0 {
+		q = `SELECT COUNT(*), COALESCE(SUM(tokens),0) FROM turns WHERE ts >= ? AND status != 'archived'`
+		args = []any{sinceUnix}
+	} else {
+		q = `SELECT COUNT(*), COALESCE(SUM(tokens),0) FROM turns WHERE status != 'archived'`
+	}
+	var st TokenStats
+	row := s.db.QueryRow(q, args...)
+	if err := row.Scan(&st.Turns, &st.TotalTokens); err != nil {
+		return st, err
+	}
+	if st.Turns > 0 {
+		st.AvgTokens = st.TotalTokens / st.Turns
+	}
+	return st, nil
+}
+
+// ChannelTokenStats holds token usage for one channel.
+type ChannelTokenStats struct {
+	ChannelKey  string
+	Turns       int
+	TotalTokens int
+}
+
+// QueryTokenStatsByChannel returns aggregated token usage per channel for the given time window.
+// Returns a slice ordered by totalTokens DESC.
+func (s *TurnStore) QueryTokenStatsByChannel(sinceUnix int64, limit int) ([]ChannelTokenStats, error) {
+	var (
+		q    string
+		args []any
+	)
+	if sinceUnix > 0 {
+		q = `SELECT channel_key, COUNT(*), COALESCE(SUM(tokens),0)
+		     FROM turns WHERE ts >= ? AND status != 'archived'
+		     GROUP BY channel_key ORDER BY 3 DESC LIMIT ?`
+		args = []any{sinceUnix, limit}
+	} else {
+		q = `SELECT channel_key, COUNT(*), COALESCE(SUM(tokens),0)
+		     FROM turns WHERE status != 'archived'
+		     GROUP BY channel_key ORDER BY 3 DESC LIMIT ?`
+		args = []any{limit}
+	}
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ChannelTokenStats
+	for rows.Next() {
+		var r ChannelTokenStats
+		if err := rows.Scan(&r.ChannelKey, &r.Turns, &r.TotalTokens); err != nil {
+			return out, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+
+// ---------------------------------------------------------------------------
 // Internal scanner
 // ---------------------------------------------------------------------------
 
