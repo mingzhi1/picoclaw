@@ -163,7 +163,7 @@ func TestExtractJSONObject(t *testing.T) {
 
 func TestPreLLM_Analyse_NoProvider(t *testing.T) {
 	p := &Analyser{} // no provider, no model
-	result := p.Analyse(context.Background(), "hello", nil, nil)
+	result := p.Analyse(context.Background(), "hello", nil, nil, "")
 	if result.Intent != "" || len(result.Tags) != 0 {
 		t.Errorf("expected empty result with no provider, got %+v", result)
 	}
@@ -180,7 +180,7 @@ func TestPreLLM_Analyse_NoTags(t *testing.T) {
 	}
 	p := NewAnalyser(mp, "test-model", cotReg)
 
-	result := p.Analyse(context.Background(), "hello there", ms, nil)
+	result := p.Analyse(context.Background(), "hello there", ms, nil, "")
 	if result.Intent != "chat" {
 		t.Errorf("expected intent 'chat', got %q", result.Intent)
 	}
@@ -205,7 +205,7 @@ func TestPreLLM_Analyse_WithMemory(t *testing.T) {
 	}
 	p := NewAnalyser(mp, "test-model", cotReg)
 
-	result := p.Analyse(context.Background(), "How do I test Go code?", ms, nil)
+	result := p.Analyse(context.Background(), "How do I test Go code?", ms, nil, "")
 
 	if result.Intent != "question" {
 		t.Errorf("intent = %q, want %q", result.Intent, "question")

@@ -1,0 +1,120 @@
+// PicoClaw Configuration Example
+// Copy this file to ~/.picoclaw/config.json and fill in your API key.
+// Only include the sections you need — everything else uses smart defaults.
+//
+// Minimal config (just 3 lines needed):
+//   { "model_list": [{ "model_name": "main", "model": "deepseek/deepseek-chat", "api_key": "sk-xxx" }] }
+//
+// Short environment variables (for Docker / CI):
+//   PC_MODEL=deepseek-chat  PC_API_KEY=sk-xxx  PC_TG_TOKEN=123:ABC  picoclaw gateway
+{
+    // ── Agent defaults ──────────────────────────────────────────────
+    "agents": {
+        "defaults": {
+            "primary_model": "deepseek-chat", // model_name from model_list below
+            "auxiliary_model": "deepseek-chat", // lightweight model for analyser/reflector
+            "max_tokens": 32768,
+            "max_tool_iterations": 50
+        }
+    },
+    // ── Model list — add your API key to ONE provider ───────────────
+    "model_list": [
+        // DeepSeek (recommended, cheapest) - https://platform.deepseek.com/
+        {
+            "model_name": "deepseek-chat",
+            "model": "deepseek/deepseek-chat",
+            "api_base": "https://api.deepseek.com/v1",
+            "api_key": ""
+        },
+        // OpenAI - https://platform.openai.com/api-keys
+        {
+            "model_name": "gpt-5.2",
+            "model": "openai/gpt-5.2",
+            "api_base": "https://api.openai.com/v1",
+            "api_key": ""
+        },
+        // Anthropic Claude - https://console.anthropic.com/settings/keys
+        {
+            "model_name": "claude-sonnet-4.6",
+            "model": "anthropic/claude-sonnet-4.6",
+            "api_base": "https://api.anthropic.com/v1",
+            "api_key": ""
+        },
+        // Google Gemini - https://ai.google.dev/
+        {
+            "model_name": "gemini-2.0-flash",
+            "model": "gemini/gemini-2.0-flash-exp",
+            "api_base": "https://generativelanguage.googleapis.com/v1beta",
+            "api_key": ""
+        },
+        // Qwen (通义千问) - https://dashscope.console.aliyun.com/apiKey
+        {
+            "model_name": "qwen-plus",
+            "model": "qwen/qwen-plus",
+            "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "api_key": ""
+        },
+        // Zhipu AI (智谱) - https://open.bigmodel.cn/usercenter/apikeys
+        {
+            "model_name": "glm-4.7",
+            "model": "zhipu/glm-4.7",
+            "api_base": "https://open.bigmodel.cn/api/paas/v4",
+            "api_key": ""
+        },
+        // Groq (fast inference) - https://console.groq.com/keys
+        {
+            "model_name": "llama-3.3-70b",
+            "model": "groq/llama-3.3-70b-versatile",
+            "api_base": "https://api.groq.com/openai/v1",
+            "api_key": ""
+        },
+        // OpenRouter (100+ models) - https://openrouter.ai/keys
+        {
+            "model_name": "openrouter-auto",
+            "model": "openrouter/auto",
+            "api_base": "https://openrouter.ai/api/v1",
+            "api_key": ""
+        },
+        // Moonshot (月之暗面) - https://platform.moonshot.cn/console/api-keys
+        {
+            "model_name": "moonshot-v1-8k",
+            "model": "moonshot/moonshot-v1-8k",
+            "api_base": "https://api.moonshot.cn/v1",
+            "api_key": ""
+        },
+        // Volcengine (火山引擎/豆包) - https://console.volcengine.com/ark
+        {
+            "model_name": "doubao-pro",
+            "model": "volcengine/doubao-pro-32k",
+            "api_base": "https://ark.cn-beijing.volces.com/api/v3",
+            "api_key": ""
+        },
+        // Ollama (local, free) - https://ollama.com
+        {
+            "model_name": "llama3",
+            "model": "ollama/llama3",
+            "api_base": "http://localhost:11434/v1",
+            "api_key": "ollama"
+        },
+        // Mistral AI - https://console.mistral.ai/api-keys
+        {
+            "model_name": "mistral-small",
+            "model": "mistral/mistral-small-latest",
+            "api_base": "https://api.mistral.ai/v1",
+            "api_key": ""
+        }
+    ],
+    // ── Channels — enable ONE messaging platform ────────────────────
+    "channels": {
+        "telegram": {
+            "enabled": true,
+            "token": "",
+            "allow_from": []
+        }
+        // Other channels: discord, feishu, qq, dingtalk, slack, line, onebot, wecom, wecom_app, wecom_aibot, pico
+    }
+    // ── Optional sections (uncomment if needed) ─────────────────────
+    // "proxy": "http://127.0.0.1:7890",
+    // "tools": { "mcp": { "enabled": true, "servers": {} } },
+    // "logging": { "level": "info" }
+}

@@ -38,9 +38,20 @@ type AnalyseResult struct {
 	// When CotID is set, this is appended as "Task-Specific Notes" after the template.
 	// When CotID is empty, this is used as a standalone thinking strategy (legacy).
 	CotPrompt string `json:"cot_prompt"`
+	// TopicAction describes the topic lifecycle decision for this turn.
+	// Populated by the Analyser LLM when topic context is available.
+	TopicAction *AnalyserTopicAction `json:"topic_action,omitempty"`
 	// MemoryContext is the formatted memory entries matching the extracted tags.
 	// This is populated after the memory lookup, not by the LLM itself.
 	MemoryContext string `json:"-"`
+}
+
+// AnalyserTopicAction is the LLM's topic routing decision.
+type AnalyserTopicAction struct {
+	Action  string   `json:"action"`            // "continue" | "new" | "resolve"
+	ID      string   `json:"id,omitempty"`      // existing topic ID (for continue/resolve)
+	Title   string   `json:"title,omitempty"`   // title for new topics
+	Resolve []string `json:"resolve,omitempty"` // topic IDs to close
 }
 
 // Analyser performs a lightweight LLM call to analyse the user's message,
@@ -79,21 +90,26 @@ const preLLMSystemPromptTpl = `You are a message analysis engine. Your job is to
 
 ## Task
 
-Given the user message, a list of available memory tags, and reference thinking strategy examples, you must:
+Given the user message, a list of available memory tags, active topic context, and reference thinking strategy examples, you must:
 1. Determine the user's **intent** — classify it into one short label.
 2. Select **relevant tags** from the available tag list. Only select genuinely relevant tags. 0 tags if none are relevant.
 3. Select **tool_hints** — which tool categories the main AI will need. Only include categories that are actually needed.
 4. Select a **cot_id** — choose the most appropriate built-in thinking template for the main AI.
 5. Optionally write a brief **cot_prompt** — task-specific notes to supplement the template (NOT a full strategy).
+6. Determine **topic_action** — whether this message continues an existing topic, starts a new one, or resolves an old one.
 
 ## Output Format
 
 Respond with ONLY a valid JSON object, no markdown fences, no explanation:
 
-{"intent":"<intent_label>","tags":["<tag1>"],"tool_hints":["<category>"],"cot_id":"<template_id>","cot_prompt":"<task_specific_notes>"}
+{"intent":"<intent_label>","tags":["<tag1>"],"tool_hints":["<category>"],"cot_id":"<template_id>","cot_prompt":"<task_specific_notes>","topic_action":{"action":"continue","id":"<topic_id>"}}
 
 - cot_id: Select the best matching template. Use "direct" for simple chat/greetings.
 - cot_prompt: Brief task-specific supplement (1-2 sentences). Empty string if the template alone is sufficient.
+- topic_action.action: "continue" (resume existing topic), "new" (start fresh topic), or "resolve" (close a topic).
+- topic_action.id: The topic ID to continue or resolve. Empty for "new".
+- topic_action.title: A short title (max 5 words) when action is "new". Empty otherwise.
+- topic_action.resolve: Optional list of topic IDs to close alongside the primary action.
 
 ## Intent Labels
 
@@ -220,9 +236,9 @@ var sensitivePatterns = func() []*sensitiveRule {
 		// Generic long secrets (hex 32+)
 		{"hex_secret", `(?i)(?:secret|token)\s*[:=]\s*["']?([A-Fa-f0-9]{32,})["']?`},
 		// Common provider key formats
-		{"sk_key", `sk-[A-Za-z0-9]{20,}`},         // OpenAI
-		{"ghp_token", `ghp_[A-Za-z0-9]{36,}`},      // GitHub
-		{"gho_token", `gho_[A-Za-z0-9]{36,}`},      // GitHub OAuth
+		{"sk_key", `sk-[A-Za-z0-9]{20,}`},           // OpenAI
+		{"ghp_token", `ghp_[A-Za-z0-9]{36,}`},       // GitHub
+		{"gho_token", `gho_[A-Za-z0-9]{36,}`},       // GitHub OAuth
 		{"glpat_token", `glpat-[A-Za-z0-9\-]{20,}`}, // GitLab
 	}
 	compiled := make([]*sensitiveRule, 0, len(rules))
@@ -263,9 +279,13 @@ func redactSensitiveInfo(s string) string {
 // to avoid blocking the main agent loop).
 // actCtx may be nil; when provided, its content is injected into the user prompt
 // (not the system prompt) to preserve system prompt prefix stability for KV cache.
-func (p *Analyser) Analyse(ctx context.Context, userMessage string, memory *MemoryStore, actCtx *ActiveContext) AnalyseResult {
+// topicContext is a formatted string of recent topics (from TopicTracker.FormatForAnalyser).
+func (p *Analyser) Analyse(ctx context.Context, userMessage string, memory *MemoryStore, actCtx *ActiveContext, topicContext string) AnalyseResult {
 	if p.provider == nil || p.model == "" {
 		return AnalyseResult{}
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
 	start := time.Now()
@@ -304,6 +324,12 @@ func (p *Analyser) Analyse(ctx context.Context, userMessage string, memory *Memo
 			userPromptBuilder.WriteString(ac)
 			userPromptBuilder.WriteString("\n\n")
 		}
+	}
+
+	// Topic context (injected into user prompt, not system prompt, for KV cache stability).
+	if topicContext != "" {
+		userPromptBuilder.WriteString(topicContext)
+		userPromptBuilder.WriteString("\n\n")
 	}
 
 	// Truncate user message to save Analyser tokens — intent classification
@@ -402,16 +428,16 @@ func (p *Analyser) Analyse(ctx context.Context, userMessage string, memory *Memo
 	elapsed := time.Since(start)
 	logger.InfoCF("analyser", "Pre-LLM analysis complete",
 		map[string]any{
-			"intent":          result.Intent,
-			"cot_id":          result.CotID,
-			"tags":            result.Tags,
-			"tool_hints":      result.ToolHints,
-			"has_cot":         result.CotPrompt != "",
-			"cot_len":         len(result.CotPrompt),
-			"memory_entries":  countMemoryLines(result.MemoryContext),
-			"elapsed_ms":      elapsed.Milliseconds(),
-			"model":           p.model,
-			"available_tags":  len(availableTags),
+			"intent":         result.Intent,
+			"cot_id":         result.CotID,
+			"tags":           result.Tags,
+			"tool_hints":     result.ToolHints,
+			"has_cot":        result.CotPrompt != "",
+			"cot_len":        len(result.CotPrompt),
+			"memory_entries": countMemoryLines(result.MemoryContext),
+			"elapsed_ms":     elapsed.Milliseconds(),
+			"model":          p.model,
+			"available_tags": len(availableTags),
 		})
 
 	return result
@@ -511,6 +537,26 @@ func (p *Analyser) parseResponse(content string) AnalyseResult {
 	}
 	// Strip dangerous command patterns from CotPrompt (defense-in-depth).
 	result.CotPrompt = sanitizeCotPrompt(result.CotPrompt)
+
+	// Sanitise topic_action: validate action type, cap title, limit resolve list.
+	if ta := result.TopicAction; ta != nil {
+		ta.Action = strings.ToLower(strings.TrimSpace(ta.Action))
+		switch ta.Action {
+		case "continue", "new", "resolve":
+			// valid
+		default:
+			result.TopicAction = nil // reject unknown action
+		}
+		if ta != nil {
+			ta.Title = strings.TrimSpace(ta.Title)
+			if len([]rune(ta.Title)) > 20 {
+				ta.Title = string([]rune(ta.Title)[:20])
+			}
+			if len(ta.Resolve) > 3 {
+				ta.Resolve = ta.Resolve[:3]
+			}
+		}
+	}
 
 	return result
 }

@@ -251,7 +251,7 @@ func TestPreLLM_LearningIntegration(t *testing.T) {
 	p := NewAnalyser(mp, "test-model", cotReg)
 
 	// First call — no learning data yet.
-	result := p.Analyse(nil, "write a function", ms, nil)
+	result := p.Analyse(nil, "write a function", ms, nil, "")
 	if result.CotPrompt == "" {
 		t.Error("expected non-empty CotPrompt")
 	}
@@ -275,7 +275,7 @@ func TestPreLLM_LearningIntegration(t *testing.T) {
 	ms.UpdateLatestCotFeedback(1)
 
 	// Second call — learning context should now be included.
-	result2 := p.Analyse(nil, "fix this bug", ms, nil)
+	result2 := p.Analyse(nil, "fix this bug", ms, nil, "")
 	if result2.CotPrompt == "" {
 		t.Error("expected non-empty CotPrompt on second call")
 	}

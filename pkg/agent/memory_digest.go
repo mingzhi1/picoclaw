@@ -25,11 +25,12 @@ import (
 //   - Processes up to 50 pending turns per cycle, grouped by channel_key.
 //   - On completion, marks turns as "processed" and archives old processed turns.
 type MemoryDigestWorker struct {
-	store    *TurnStore
-	memory   *MemoryStore
-	provider providers.LLMProvider
-	model    string
-	interval time.Duration
+	store     *TurnStore
+	memory    *MemoryStore
+	factStore *FactStore
+	provider  providers.LLMProvider
+	model     string
+	interval  time.Duration
 }
 
 // MemoryDigestConfig holds tunable parameters.
@@ -62,6 +63,11 @@ func NewMemoryDigestWorker(
 		model:    model,
 		interval: defaultDigestConfig().Interval,
 	}
+}
+
+// SetFactStore attaches a FactStore for structured fact extraction.
+func (w *MemoryDigestWorker) SetFactStore(fs *FactStore) {
+	w.factStore = fs
 }
 
 // SetInterval overrides the polling interval (e.g. for testing).
@@ -159,6 +165,25 @@ func (w *MemoryDigestWorker) processGroup(ctx context.Context, channelKey string
 		}
 	}
 
+	// Step 4b: Write structured facts to FactStore.
+	if w.factStore != nil {
+		for _, m := range memories {
+			if m.Entity != "" && m.Key != "" {
+				ft := FactState
+				switch m.FactType {
+				case "append":
+					ft = FactAppend
+				case "event":
+					ft = FactEvent
+				}
+				if _, err := w.factStore.Upsert(m.Entity, m.Key, m.Value, ft, ""); err != nil {
+					logger.WarnCF("memory_digest", "Fact upsert failed",
+						map[string]any{"entity": m.Entity, "key": m.Key, "error": err.Error()})
+				}
+			}
+		}
+	}
+
 	// Step 5: Mark all turns as processed.
 	for _, t := range turns {
 		if setErr := w.store.SetStatus(t.ID, "processed"); setErr != nil {
@@ -178,8 +203,13 @@ func (w *MemoryDigestWorker) processGroup(ctx context.Context, channelKey string
 
 // digestMemoryResult holds one extracted memory item.
 type digestMemoryResult struct {
-	Content string   `json:"content"`
-	Tags    []string `json:"tags"`
+	Content  string   `json:"content"`
+	Tags     []string `json:"tags"`
+	// Structured fact fields (optional, populated when LLM detects entity-level facts).
+	Entity   string `json:"entity,omitempty"`
+	Key      string `json:"key,omitempty"`
+	Value    string `json:"value,omitempty"`
+	FactType string `json:"type,omitempty"` // "state" | "append" | "event"
 }
 
 const digestPrompt = `Extract important, durable facts worth remembering from these conversation turns.
@@ -187,13 +217,20 @@ const digestPrompt = `Extract important, durable facts worth remembering from th
 Conversation turns:
 %s
 
-Respond with ONLY JSON: {"memories": [{"content": "<fact>", "tags": ["tag1"]}]}
+Respond with ONLY JSON: {"memories": [...]}
+
+Each memory item can be:
+1. Free-form: {"content": "<fact>", "tags": ["tag1"]}
+2. Structured fact: {"content": "<fact>", "tags": ["tag1"], "entity": "<object>", "key": "<attribute>", "value": "<current_value>", "type": "<state|append|event>"}
+
 Rules:
 - max 5 memories total across all turns
 - max 3 tags each, lowercase
 - skip trivial small-talk
 - prefer facts about user preferences, environment, recurring patterns, important decisions
-- if nothing worth remembering: {"memories": []}`
+- for structured facts: entity = specific object (function, file, service), key = attribute (status, latency), type = state (overwritten) / append (accumulated) / event (state transition)
+- if nothing worth remembering: {"memories": []}
+`
 
 // extractMemories calls the LLM to distil memories from a batch of turns.
 // Returns nil memories (not error) when the LLM is unconfigured.

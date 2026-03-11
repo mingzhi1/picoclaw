@@ -32,25 +32,46 @@ func TestNewPicoclawCommand(t *testing.T) {
 	assert.Nil(t, cmd.PersistentPreRun)
 	assert.Nil(t, cmd.PersistentPostRun)
 
-	allowedCommands := []string{
-		"agent",
-		"auth",
+	// Visible commands (shown in --help)
+	visibleCommands := []string{
+		"chat",
+		"config",
 		"cron",
+		"doctor",
 		"gateway",
-		"migrate",
 		"onboard",
 		"skills",
 		"status",
 		"version",
 	}
 
-	subcommands := cmd.Commands()
-	assert.Len(t, subcommands, len(allowedCommands))
+	// Hidden commands (still work, just not in --help)
+	hiddenCommands := []string{
+		"agent",
+		"auth",
+		"migrate",
+	}
 
-	for _, subcmd := range subcommands {
-		found := slices.Contains(allowedCommands, subcmd.Name())
+	allExpected := append(visibleCommands, hiddenCommands...)
+
+	// cobra's Commands() returns ALL commands including hidden ones
+	allCommands := cmd.Commands()
+	assert.Len(t, allCommands, len(allExpected))
+
+	for _, subcmd := range allCommands {
+		found := slices.Contains(allExpected, subcmd.Name())
 		assert.True(t, found, "unexpected subcommand %q", subcmd.Name())
 
-		assert.False(t, subcmd.Hidden)
+		if slices.Contains(hiddenCommands, subcmd.Name()) {
+			assert.True(t, subcmd.Hidden, "command %q should be hidden", subcmd.Name())
+		} else {
+			assert.False(t, subcmd.Hidden, "command %q should not be hidden", subcmd.Name())
+		}
+	}
+
+	// Check hidden commands are still callable
+	for _, name := range hiddenCommands {
+		_, _, err := cmd.Find([]string{name})
+		assert.NoError(t, err, "hidden command %q should still be findable", name)
 	}
 }

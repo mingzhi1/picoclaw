@@ -644,7 +644,9 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 	resultJSON, _ := json.MarshalIndent(result, "", "  ")
 
 	return &ToolResult{
-		ForLLM: string(resultJSON),
+		// Wrap external content in fence tags to mitigate indirect prompt injection.
+		// The LLM receives a clear signal that enclosed text is untrusted data, not instructions.
+		ForLLM: WrapExternalContent(urlStr, string(resultJSON)),
 		ForUser: fmt.Sprintf(
 			"Fetched %d bytes from %s (extractor: %s, truncated: %v)",
 			len(text),

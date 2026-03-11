@@ -76,6 +76,7 @@ type ExecConfig struct {
 	EnableDenyPatterns  bool     `json:"enable_deny_patterns,omitempty"  env:"PICOCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS"`
 	CustomDenyPatterns  []string `json:"custom_deny_patterns,omitempty"  env:"PICOCLAW_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
 	CustomAllowPatterns []string `json:"custom_allow_patterns,omitempty" env:"PICOCLAW_TOOLS_EXEC_CUSTOM_ALLOW_PATTERNS"`
+	EnableLLMReview     bool     `json:"enable_llm_review,omitempty"     env:"PICOCLAW_TOOLS_EXEC_ENABLE_LLM_REVIEW"`
 }
 
 type MediaCleanupConfig struct {

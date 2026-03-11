@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -62,7 +63,12 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	}
 
 	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("failed to rename temp file: %w", err)
+		if writeErr := fallbackWriteFile(path, data, perm); writeErr != nil {
+			return fmt.Errorf("failed to rename temp file: %w (fallback write failed: %v)", err, writeErr)
+		}
+		cleanup = false
+		_ = os.Remove(tmpPath)
+		return nil
 	}
 
 	if dirFile, err := os.Open(dir); err == nil {
@@ -71,5 +77,20 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	}
 
 	cleanup = false
+	return nil
+}
+
+func fallbackWriteFile(path string, data []byte, perm os.FileMode) error {
+	if runtime.GOOS == "windows" {
+		_ = os.Remove(path)
+	}
+	if err := os.WriteFile(path, data, perm); err != nil {
+		return err
+	}
+	if file, err := os.OpenFile(path, os.O_RDWR, 0); err == nil {
+		_ = file.Chmod(perm)
+		_ = file.Sync()
+		_ = file.Close()
+	}
 	return nil
 }

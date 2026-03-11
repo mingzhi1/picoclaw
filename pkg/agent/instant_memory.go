@@ -250,3 +250,30 @@ func appendTurnMessages(msgs []providers.Message, t TurnRecord) []providers.Mess
 
 	return msgs
 }
+
+// ---------------------------------------------------------------------------
+// Turn sanitization — prevent bloat before storage
+// ---------------------------------------------------------------------------
+
+const (
+	maxReplyLen   = 2000 // Truncate assistant replies > 2000 chars.
+	maxUserMsgLen = 1000 // Truncate user messages > 1000 chars.
+)
+
+// sanitizeReply truncates oversized assistant replies before they are
+// persisted to TurnStore. DigestWorker handles extracting key information
+// later, so we only need a representative prefix.
+func sanitizeReply(reply string) string {
+	if len(reply) <= maxReplyLen {
+		return reply
+	}
+	return reply[:maxReplyLen] + "\n...(truncated)"
+}
+
+// sanitizeUserMsg truncates oversized user messages for storage.
+func sanitizeUserMsg(msg string) string {
+	if len(msg) <= maxUserMsgLen {
+		return msg
+	}
+	return msg[:maxUserMsgLen] + "\n...(truncated)"
+}

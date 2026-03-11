@@ -191,7 +191,14 @@ func TestWebTool_WebFetch_Truncation(t *testing.T) {
 
 	// ForLLM should contain truncated content (not the full 20000 chars)
 	resultMap := make(map[string]any)
-	json.Unmarshal([]byte(result.ForLLM), &resultMap)
+	start := strings.Index(result.ForLLM, "{")
+	end := strings.LastIndex(result.ForLLM, "}")
+	if start == -1 || end == -1 || end < start {
+		t.Fatalf("expected wrapped JSON payload, got: %s", result.ForLLM)
+	}
+	if err := json.Unmarshal([]byte(result.ForLLM[start:end+1]), &resultMap); err != nil {
+		t.Fatalf("failed to decode wrapped JSON payload: %v", err)
+	}
 	if text, ok := resultMap["text"].(string); ok {
 		if len(text) > 1100 { // Allow some margin
 			t.Errorf("Expected content to be truncated to ~1000 chars, got: %d", len(text))

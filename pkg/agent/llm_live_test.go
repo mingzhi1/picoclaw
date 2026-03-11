@@ -48,10 +48,17 @@ func liveConfig(t *testing.T) *config.Config {
 	if testing.Short() {
 		t.Skip("skipping live API test in -short mode")
 	}
+	if os.Getenv("RUN_LIVE_TESTS") != "1" && os.Getenv("LIVE_CONFIG") == "" {
+		t.Skip("skipping live API test; set RUN_LIVE_TESTS=1 or LIVE_CONFIG to run")
+	}
 	candidates := []string{
 		filepath.Join(os.Getenv("USERPROFILE"), ".picoclaw", "config.json"),
 		filepath.Join(os.Getenv("HOME"), ".picoclaw", "config.json"),
 		filepath.Join("testdata", "config.json"),
+	}
+	// Allow explicit config path via LIVE_CONFIG env var.
+	if envCfg := os.Getenv("LIVE_CONFIG"); envCfg != "" {
+		candidates = []string{envCfg}
 	}
 	var cfgPath string
 	for _, p := range candidates {
@@ -159,7 +166,7 @@ func TestLive_Phase1_Analyser(t *testing.T) {
 			liveSleep(t)
 		}
 		t.Run(tc.name, func(t *testing.T) {
-			r := analyser.Analyse(ctx, tc.msg, nil, nil)
+			r := analyser.Analyse(ctx, tc.msg, nil, nil, "")
 			t.Logf("input=%q → intent=%q tags=%v cot_len=%d",
 				tc.msg, r.Intent, r.Tags, len(r.CotPrompt))
 			if tc.wantTag != "" {
@@ -187,22 +194,22 @@ func TestLive_Phase1_Boundary(t *testing.T) {
 
 	t.Run("very long message", func(t *testing.T) {
 		msg := strings.Repeat("请帮我分析这个代码然后提供优化建议。", 100)
-		r := analyser.Analyse(ctx, msg, nil, nil)
+		r := analyser.Analyse(ctx, msg, nil, nil, "")
 		t.Logf("long(%d chars) → intent=%q tags=%v", len(msg), r.Intent, r.Tags)
 	})
 	liveSleep(t)
 	t.Run("emoji noise", func(t *testing.T) {
-		r := analyser.Analyse(ctx, "🎉🚀💥🔥 !!!###$$$", nil, nil)
+		r := analyser.Analyse(ctx, "🎉🚀💥🔥 !!!###$$$", nil, nil, "")
 		t.Logf("noise → intent=%q tags=%v", r.Intent, r.Tags)
 	})
 	liveSleep(t)
 	t.Run("mixed zh-en", func(t *testing.T) {
-		r := analyser.Analyse(ctx, "Please 帮我 deploy to 生产环境 now", nil, nil)
+		r := analyser.Analyse(ctx, "Please 帮我 deploy to 生产环境 now", nil, nil, "")
 		t.Logf("mixed → intent=%q tags=%v", r.Intent, r.Tags)
 	})
 	liveSleep(t)
 	t.Run("slash passthrough", func(t *testing.T) {
-		r := analyser.Analyse(ctx, "/help", nil, nil)
+		r := analyser.Analyse(ctx, "/help", nil, nil, "")
 		t.Logf("/help → intent=%q tags=%v", r.Intent, r.Tags)
 	})
 }

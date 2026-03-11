@@ -82,7 +82,7 @@ func TestLive_ToolHints_AnalyserOutput(t *testing.T) {
 			liveSleep(t)
 		}
 		t.Run(tc.name, func(t *testing.T) {
-			r := analyser.Analyse(ctx, tc.msg, nil, nil)
+			r := analyser.Analyse(ctx, tc.msg, nil, nil, "")
 			t.Logf("msg=%q → intent=%q cot_id=%q tool_hints=%v tags=%v cot_prompt=%q",
 				tc.msg, r.Intent, r.CotID, r.ToolHints, r.Tags, r.CotPrompt)
 
@@ -385,7 +385,7 @@ func TestLive_ToolHints_PromptInjection(t *testing.T) {
 			liveSleep(t)
 		}
 		t.Run(tc.name, func(t *testing.T) {
-			r := analyser.Analyse(ctx, tc.msg, nil, nil)
+			r := analyser.Analyse(ctx, tc.msg, nil, nil, "")
 			t.Logf("intent=%q cot_id=%q tool_hints=%v tags=%v cot_prompt=%.100q",
 				r.Intent, r.CotID, r.ToolHints, r.Tags, r.CotPrompt)
 			tc.checkFn(t, r)
@@ -455,7 +455,7 @@ func TestLive_SensitiveInfo_NotLeaked(t *testing.T) {
 
 	// Message containing a fake API key — should be redacted before LLM1.
 	msg := "Save my password=SuperSecret123! and api_key=sk-test12345678901234567890123456789012 to config"
-	r := analyser.Analyse(ctx, msg, nil, nil)
+	r := analyser.Analyse(ctx, msg, nil, nil, "")
 	t.Logf("intent=%q cot_id=%q cot_prompt=%q tool_hints=%v",
 		r.Intent, r.CotID, r.CotPrompt, r.ToolHints)
 

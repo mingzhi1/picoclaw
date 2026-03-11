@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/sipeed/picoclaw/pkg/infra/config"
+	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
@@ -25,6 +26,7 @@ type ExecTool struct {
 	allowPatterns       []*regexp.Regexp
 	customAllowPatterns []*regexp.Regexp
 	restrictToWorkspace bool
+	llmReviewer         *LLMCommandReviewer // optional LLM-based semantic review
 }
 
 var (
@@ -108,6 +110,7 @@ func NewExecToolWithConfig(workingDir string, restrict bool, config *config.Conf
 		enableDenyPatterns := execConfig.EnableDenyPatterns
 		if enableDenyPatterns {
 			denyPatterns = append(denyPatterns, defaultDenyPatterns...)
+			denyPatterns = append(denyPatterns, windowsDenyPatterns...)
 			if len(execConfig.CustomDenyPatterns) > 0 {
 				fmt.Printf("Using custom deny patterns: %v\n", execConfig.CustomDenyPatterns)
 				for _, pattern := range execConfig.CustomDenyPatterns {
@@ -120,7 +123,7 @@ func NewExecToolWithConfig(workingDir string, restrict bool, config *config.Conf
 			}
 		} else {
 			// If deny patterns are disabled, we won't add any patterns, allowing all commands.
-			fmt.Println("Warning: deny patterns are disabled. All commands will be allowed.")
+			validateDenyConfig(false)
 		}
 		for _, pattern := range execConfig.CustomAllowPatterns {
 			re, err := regexp.Compile(pattern)
@@ -131,6 +134,7 @@ func NewExecToolWithConfig(workingDir string, restrict bool, config *config.Conf
 		}
 	} else {
 		denyPatterns = append(denyPatterns, defaultDenyPatterns...)
+		denyPatterns = append(denyPatterns, windowsDenyPatterns...)
 	}
 
 	return &ExecTool{
@@ -212,7 +216,46 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]any) *ToolResult
 	}
 
 	if guardError := t.guardCommand(command, cwd); guardError != "" {
-		return ErrorResult(guardError)
+		// Anti-social-engineering: do NOT include the blocked command in ForLLM.
+		// If LLM sees the rejected command text, it may ask the user to run it manually,
+		// turning the deny list into a social engineering vector (reject-then-retry attack).
+		return &ToolResult{
+			ForLLM: "Command blocked by security policy. " +
+				"Do NOT ask the user to run this command manually. " +
+				"Do NOT suggest alternative ways to execute the same operation. " +
+				"Explain to the user that this operation is not permitted and suggest a safe alternative approach.",
+			ForUser: fmt.Sprintf("⛔ 命令因安全策略被阻止: %s\n请勿手动执行此命令。", guardError),
+			IsError: true,
+		}
+	}
+
+	// LLM semantic review — advisory mode.
+	// When the reviewer flags a command, we do NOT block it. Instead we:
+	//   1. Show the command + risk reason to the user (ForUser)
+	//   2. Tell the LLM it was not auto-executed (ForLLM)
+	// The user can then decide to copy-paste and run it themselves.
+	if t.llmReviewer != nil {
+		review := t.llmReviewer.Review(ctx, command)
+		if !review.Allowed {
+			logger.InfoCF("exec", "Command flagged by LLM review — showing to user", map[string]any{
+				"command": command,
+				"reason":  review.Reason,
+			})
+			return &ToolResult{
+				ForLLM: fmt.Sprintf(
+					"Command was NOT auto-executed due to security review: %s\n"+
+						"The command has been shown to the user. "+
+						"If the user wants to run it, they will do so manually.",
+					review.Reason,
+				),
+				ForUser: fmt.Sprintf(
+					"⚠️ 风险提示: %s\n\n"+
+						"命令未自动执行，请检查后手动运行:\n```\n%s\n```",
+					review.Reason, command,
+				),
+				IsError: false,
+			}
+		}
 	}
 
 	// timeout == 0 means no timeout
@@ -417,6 +460,13 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 
 func (t *ExecTool) SetTimeout(timeout time.Duration) {
 	t.timeout = timeout
+}
+
+// SetLLMReviewer enables LLM-based semantic command review.
+// When set, commands that pass the regex deny list are additionally
+// reviewed by a lightweight LLM before execution.
+func (t *ExecTool) SetLLMReviewer(reviewer *LLMCommandReviewer) {
+	t.llmReviewer = reviewer
 }
 
 func (t *ExecTool) SetRestrictToWorkspace(restrict bool) {

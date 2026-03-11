@@ -20,6 +20,11 @@ import (
 )
 
 func agentCmd(message, sessionKey, model string, debug bool) error {
+	return RunAgent(message, sessionKey, model, debug)
+}
+
+// RunAgent is the exported entry point, used by both 'agent' and 'chat' commands.
+func RunAgent(message, sessionKey, model string, debug bool) error {
 	if sessionKey == "" {
 		sessionKey = "cli:default"
 	}

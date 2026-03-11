@@ -258,8 +258,8 @@ func (r *Reflector) AsyncPhase3(input RuntimeInput, memory *MemoryStore, turnSto
 				Intent:     input.Intent,
 				Tags:       input.Tags,
 				Status:     "pending",
-				UserMsg:    input.UserMessage,
-				Reply:      input.AssistantReply,
+				UserMsg:    sanitizeUserMsg(input.UserMessage),
+				Reply:      sanitizeReply(input.AssistantReply),
 				ToolCalls:  input.ToolCalls,
 			}
 			if err := turnStore.Insert(record); err != nil {

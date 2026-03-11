@@ -34,16 +34,17 @@ func onboard() {
 	createWorkspaceTemplates(workspace)
 
 	fmt.Printf("%s picoclaw is ready!\n", internal.Logo)
-	fmt.Println("\nNext steps:")
-	fmt.Println("  1. Add your API key to", configPath)
-	fmt.Println("")
-	fmt.Println("     Recommended:")
-	fmt.Println("     - OpenRouter: https://openrouter.ai/keys (access 100+ models)")
-	fmt.Println("     - Ollama:     https://ollama.com (local, free)")
-	fmt.Println("")
-	fmt.Println("     See README.md for 17+ supported providers.")
-	fmt.Println("")
-	fmt.Println("  2. Chat: picoclaw agent -m \"Hello!\"")
+	fmt.Println("\nQuick start (add to", configPath, "):")
+	fmt.Println(`
+  {
+    "model_list": [
+      { "model_name": "main", "model": "deepseek/deepseek-chat", "api_base": "https://api.deepseek.com/v1", "api_key": "sk-YOUR-KEY" }
+    ]
+  }`)
+	fmt.Println("\nOr use short environment variables:")
+	fmt.Println("  PC_MODEL=deepseek-chat PC_API_KEY=sk-xxx picoclaw agent -m \"Hello!\"")
+	fmt.Println("\nMore providers: see config.example.jsonc in the project root.")
+	fmt.Println("  Chat: picoclaw agent -m \"Hello!\"")
 }
 
 func createWorkspaceTemplates(workspace string) {

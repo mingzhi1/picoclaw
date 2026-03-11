@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/sipeed/picoclaw/pkg/tools"
 )
 
 // --- Slash command tests ----------------------------------------------------
@@ -117,6 +119,11 @@ func TestRuntime_HelpCommand(t *testing.T) {
 
 func TestRuntime_ShellSecurity(t *testing.T) {
 	r := NewReflector(nil, "")
+	execTool, err := tools.NewExecTool(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("NewExecTool() error: %v", err)
+	}
+	r.shellInstance = tools.NewShellInstance(execTool, "", false)
 	dir := t.TempDir()
 	ms := NewMemoryStore(dir)
 	defer ms.Close()
@@ -227,6 +234,7 @@ func TestRuntime_UnknownCommand(t *testing.T) {
 
 func TestRuntime_ShellCommand(t *testing.T) {
 	r := NewReflector(nil, "")
+	r.shellInstance = tools.NewShellInstance(nil, "", false)
 	dir := t.TempDir()
 	ms := NewMemoryStore(dir)
 	defer ms.Close()

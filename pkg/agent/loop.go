@@ -30,6 +30,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/infra/media"
 	"github.com/sipeed/picoclaw/pkg/llm/providers"
 	"github.com/sipeed/picoclaw/pkg/agent/routing"
+	"github.com/sipeed/picoclaw/pkg/agent/topic"
 	"github.com/sipeed/picoclaw/pkg/skills"
 	"github.com/sipeed/picoclaw/pkg/core/state"
 	"github.com/sipeed/picoclaw/pkg/tools"
@@ -53,6 +54,8 @@ type AgentLoop struct {
 	memoryDigest   *MemoryDigestWorker    // background memory distillation
 	cache          *kvcache.Store         // persistent KV cache (workspace/cache.db)
 	extensions     *extension.Manager     // optional extension modules (devices, media, voice)
+	topicTracker   *topic.Tracker         // topic lifecycle management for long conversations
+	factStore      *FactStore             // entity-attribute-value facts with versioning
 	// Concurrency control
 	msgSem         chan struct{}           // limits concurrent message processing
 	sessionLocks   sync.Map               // per-session mutex to serialize same-session messages
@@ -136,6 +139,41 @@ func NewAgentLoop(
 		}
 	}
 
+	// Topic Tracker: DB-backed topic lifecycle management for long conversations.
+	var topicTracker *topic.Tracker
+	if defaultAgent != nil {
+		topicDBPath := filepath.Join(defaultAgent.Workspace, "turns.db")
+		topicStore, err := topic.NewStore(topicDBPath)
+		if err != nil {
+			logger.WarnCF("agent", "Failed to create TopicStore", map[string]any{"error": err.Error()})
+		} else {
+			topicTracker, err = topic.NewTracker(topicStore)
+			if err != nil {
+				logger.WarnCF("agent", "Failed to create TopicTracker", map[string]any{"error": err.Error()})
+				topicStore.Close()
+			}
+		}
+	}
+
+	// Fact Store: structured entity-attribute-value facts with versioning.
+	// Shares the same turns.db file (separate table).
+	var factStoreInstance *FactStore
+	if defaultAgent != nil {
+		factDB, err := store.Open(defaultAgent.Workspace)
+		if err != nil {
+			logger.WarnCF("agent", "Failed to open DB for FactStore", map[string]any{"error": err.Error()})
+		} else {
+			factStoreInstance, err = NewFactStore(factDB)
+			if err != nil {
+				logger.WarnCF("agent", "Failed to create FactStore", map[string]any{"error": err.Error()})
+			}
+		}
+	}
+	// Wire FactStore to DigestWorker so extracted facts are persisted.
+	if digestWorker != nil && factStoreInstance != nil {
+		digestWorker.SetFactStore(factStoreInstance)
+	}
+
 	// Persistent KV cache for general-purpose caching (web results, analysis, etc.)
 	var kvCache *kvcache.Store
 	if defaultAgent != nil {
@@ -194,18 +232,20 @@ func NewAgentLoop(
 	}
 
 	return &AgentLoop{
-		bus:          msgBus,
-		cfg:          cfg,
-		registry:     registry,
-		state:        stateManager,
-		summarizing:  sync.Map{},
-		fallback:     fallbackChain,
-		turnStore:    ts,
-		activeCtx:    activeCtxStore,
-		memoryDigest: digestWorker,
-		cache:        kvCache,
-		extensions:   extMgr,
-		msgSem:       make(chan struct{}, 4), // max 4 concurrent message handlers
+		bus:            msgBus,
+		cfg:            cfg,
+		registry:       registry,
+		state:          stateManager,
+		summarizing:    sync.Map{},
+		fallback:       fallbackChain,
+		turnStore:      ts,
+		activeCtx:      activeCtxStore,
+		memoryDigest:   digestWorker,
+		cache:          kvCache,
+		extensions:     extMgr,
+		topicTracker:   topicTracker,
+		factStore:      factStoreInstance,
+		msgSem:         make(chan struct{}, 4), // max 4 concurrent message handlers
 	}
 }
 
@@ -217,6 +257,9 @@ func (al *AgentLoop) Close() {
 	}
 	if al.turnStore != nil {
 		al.turnStore.Close()
+	}
+	if al.factStore != nil {
+		al.factStore.Close()
 	}
 	// Close each agent's MemoryStore to release SQLite file locks.
 	if al.registry != nil {
@@ -686,12 +729,53 @@ func (al *AgentLoop) runAgentLoop(
 		if al.activeCtx != nil {
 			actCtx = al.activeCtx.Get(channelKey)
 		}
-		analyseResult = agent.Analyser.Analyse(ctx, opts.UserMessage, agent.ContextBuilder.GetMemory(), actCtx)
+		// Inject topic context into Analyser prompt for topic-aware routing.
+		var topicContext string
+		if al.topicTracker != nil {
+			topicContext = al.topicTracker.FormatForAnalyser()
+		}
+		analyseResult = agent.Analyser.Analyse(ctx, opts.UserMessage, agent.ContextBuilder.GetMemory(), actCtx, topicContext)
+
+		// Apply topic action from Analyser to TopicTracker.
+		if al.topicTracker != nil {
+			ta := analyseResult.TopicAction
+			action := topic.Action{Type: topic.ActionContinue}
+			if ta != nil {
+				switch ta.Action {
+				case "new":
+					action = topic.Action{Type: topic.ActionNew, Title: ta.Title, Resolve: ta.Resolve}
+				case "resolve":
+					action = topic.Action{Type: topic.ActionResolve, Primary: ta.ID, Resolve: ta.Resolve}
+				default: // "continue" or unknown
+					action = topic.Action{Type: topic.ActionContinue, Primary: ta.ID, Resolve: ta.Resolve}
+				}
+			}
+			if tp, err := al.topicTracker.Apply(action); err != nil {
+				logger.WarnCF("agent", "Topic apply failed", map[string]any{"error": err.Error()})
+			} else if tp != nil {
+				logger.DebugCF("agent", "Topic active",
+					map[string]any{"id": tp.ID, "title": tp.Title, "status": string(tp.Status)})
+			}
+		}
 
 		// Build system prompt from ContextBuilder (cached static + dynamic context).
 		staticPrompt := agent.ContextBuilder.BuildSystemPromptWithCache()
 		dynamicCtx := agent.ContextBuilder.buildDynamicContext(opts.Channel, opts.ChatID)
 		systemPrompt := staticPrompt + "\n\n---\n\n" + dynamicCtx
+
+		// Inject active facts (global + topic-scoped) into system prompt.
+		// Position: after static prompt, before CoT — stable, good cache hit.
+		if al.factStore != nil {
+			var currentTopicID string
+			if al.topicTracker != nil {
+				if cur := al.topicTracker.Current(); cur != nil {
+					currentTopicID = cur.ID
+				}
+			}
+			if factsCtx := al.factStore.FormatForContext(currentTopicID); factsCtx != "" {
+				systemPrompt += "\n\n---\n\n" + factsCtx
+			}
+		}
 
 		// Enrich system prompt with CoT 鈥?template + task-specific supplement.
 		if analyseResult.CotID != "" && agent.Analyser != nil {
@@ -771,7 +855,7 @@ func (al *AgentLoop) runAgentLoop(
 			if al.activeCtx != nil {
 				actCtx = al.activeCtx.Get(channelKey)
 			}
-			analyseResult = agent.Analyser.Analyse(ctx, opts.UserMessage, agent.ContextBuilder.GetMemory(), actCtx)
+			analyseResult = agent.Analyser.Analyse(ctx, opts.UserMessage, agent.ContextBuilder.GetMemory(), actCtx, "")
 
 			var enrichment strings.Builder
 			// CoT injection: template + task-specific supplement (hybrid mode).
@@ -905,6 +989,12 @@ func (al *AgentLoop) runAgentLoop(
 	// Runs AFTER PublishOutbound to not delay the user response.
 	if agent.Reflector != nil && opts.UserMessage != "" {
 		agent.Reflector.AsyncPhase3(runtimeInput, agent.ContextBuilder.GetMemory(), al.turnStore, al.activeCtx)
+	}
+
+	// 6.7. Topic token tracking — rough estimate for compaction decisions.
+	if al.topicTracker != nil && opts.UserMessage != "" {
+		turnTokens := (len(opts.UserMessage) + len(finalContent)) / 4 // ~4 chars/token
+		_ = al.topicTracker.RecordTurnTokens(turnTokens)
 	}
 
 	// 9. Log response

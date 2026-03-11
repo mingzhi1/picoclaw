@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 
 	"github.com/caarlos0/env/v11"
@@ -12,6 +13,8 @@ import (
 
 // LoadConfig reads and parses a config file (supports JSONC comments).
 func LoadConfig(path string) (*Config, error) {
+	resolveShortEnvVars()
+
 	cfg := DefaultConfig()
 
 	data, err := os.ReadFile(path)
@@ -42,9 +45,18 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.ModelList = ConvertProvidersToModelList(cfg)
 	}
 
+	// PC_API_KEY: inject into first model_list entry if it has no key
+	if pcKey := os.Getenv("PC_API_KEY"); pcKey != "" && len(cfg.ModelList) > 0 {
+		if cfg.ModelList[0].APIKey == "" {
+			cfg.ModelList[0].APIKey = pcKey
+		}
+	}
+
 	if err := cfg.ValidateModelList(); err != nil {
 		return nil, err
 	}
+
+	warnDeprecatedFields(cfg)
 
 	return cfg, nil
 }
@@ -96,3 +108,69 @@ func expandHome(path string) string {
 	}
 	return path
 }
+
+// --- Short environment variable aliases ---
+// Makes Docker/CI deployment much simpler:
+//   PC_MODEL=deepseek-chat PC_API_KEY=sk-xxx picoclaw gateway
+
+// shortEnvAliases maps short env var names to their full PICOCLAW_ equivalents.
+var shortEnvAliases = map[string]string{
+	"PC_MODEL":     "PICOCLAW_AGENTS_DEFAULTS_PRIMARY_MODEL",
+	"PC_AUX_MODEL": "PICOCLAW_AGENTS_DEFAULTS_AUXILIARY_MODEL",
+	"PC_PROXY":     "PICOCLAW_PROXY",
+	"PC_TG_TOKEN":  "PICOCLAW_CHANNELS_TELEGRAM_TOKEN",
+	"PC_DC_TOKEN":  "PICOCLAW_CHANNELS_DISCORD_TOKEN",
+	"PC_GW_HOST":   "PICOCLAW_GATEWAY_HOST",
+	"PC_GW_PORT":   "PICOCLAW_GATEWAY_PORT",
+}
+
+// resolveShortEnvVars maps PC_* short aliases to their full PICOCLAW_* names.
+// Short aliases do NOT override already-set full env vars.
+func resolveShortEnvVars() {
+	for short, full := range shortEnvAliases {
+		if v := os.Getenv(short); v != "" {
+			if os.Getenv(full) == "" {
+				os.Setenv(full, v)
+			}
+		}
+	}
+
+	// PC_CHANNEL=telegram → auto-enable that channel
+	if ch := os.Getenv("PC_CHANNEL"); ch != "" {
+		enableEnv := fmt.Sprintf("PICOCLAW_CHANNELS_%s_ENABLED", upperCase(ch))
+		if os.Getenv(enableEnv) == "" {
+			os.Setenv(enableEnv, "true")
+		}
+	}
+}
+
+// upperCase is a simple ASCII uppercase helper (avoids importing strings).
+func upperCase(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'a' && c <= 'z' {
+			b[i] = c - 32
+		}
+	}
+	return string(b)
+}
+
+// warnDeprecatedFields prints warnings for deprecated config fields.
+func warnDeprecatedFields(cfg *Config) {
+	if cfg.Agents.Defaults.ModelName != "" {
+		fmt.Fprintf(os.Stderr, "[WARN] config: 'model_name' is deprecated, use 'primary_model' instead\n")
+	}
+	if cfg.Agents.Defaults.Model != "" {
+		fmt.Fprintf(os.Stderr, "[WARN] config: 'model' is deprecated, use 'primary_model' instead\n")
+	}
+	if cfg.Agents.Defaults.AnalyserModel != "" {
+		fmt.Fprintf(os.Stderr, "[WARN] config: 'analyser_model' is deprecated, use 'auxiliary_model' instead\n")
+	}
+	if cfg.Agents.Defaults.PreLLMModel != "" {
+		fmt.Fprintf(os.Stderr, "[WARN] config: 'pre_llm_model' is deprecated, use 'auxiliary_model' instead\n")
+	}
+	if !cfg.Providers.IsEmpty() {
+		fmt.Fprintf(os.Stderr, "[WARN] config: 'providers' section is deprecated, use 'model_list' instead\n")
+	}
+}
+
