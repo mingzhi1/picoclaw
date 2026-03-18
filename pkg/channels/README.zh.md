@@ -57,11 +57,9 @@ pkg/channels/
 │   ├── init.go          # 工厂注册
 │   ├── telegram.go      # 实现
 │   └── telegram_commands.go
-├── discord/
+├── feishu/
 │   ├── init.go
-│   └── discord.go
-├── slack/ line/ onebot/ dingtalk/ feishu/ wecom/ qq/ whatsapp/ whatsapp_native/ maixcam/ pico/
-│   └── ...
+│   └── feishu.go
 
 pkg/bus/
 ├── bus.go               # MessageBus（缓冲区 64，安全关闭+排水）
@@ -145,7 +143,6 @@ pkg/identity/
 | _(不存在)_ | `pkg/channels/interfaces.go` | 新增可选能力接口 |
 | _(不存在)_ | `pkg/channels/media.go` | 新增 MediaSender 接口 |
 | _(不存在)_ | `pkg/channels/webhook.go` | 新增 WebhookHandler/HealthChecker |
-| _(不存在)_ | `pkg/channels/whatsapp_native/` | 新增 WhatsApp 原生模式（whatsmeow） |
 | _(不存在)_ | `pkg/channels/split.go` | 新增消息分割（从 utils 迁入） |
 | _(不存在)_ | `pkg/bus/types.go` | 新增结构化消息类型 |
 | _(不存在)_ | `pkg/media/store.go` | 新增媒体文件生命周期管理 |
@@ -339,8 +336,7 @@ func init() {
 // cmd/picoclaw/internal/gateway/helpers.go
 import (
     _ "github.com/sipeed/picoclaw/pkg/channels/telegram"   // 触发 init() 注册
-    _ "github.com/sipeed/picoclaw/pkg/channels/discord"
-    _ "github.com/sipeed/picoclaw/pkg/channels/your_new_channel"  // 新增
+    _ "github.com/sipeed/picoclaw/pkg/channels/feishu"
 )
 ```
 

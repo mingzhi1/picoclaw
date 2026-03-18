@@ -292,29 +292,8 @@ func getEnabledChannels(cfg *config.Config) []string {
 	if ch.Telegram.Enabled {
 		enabled = append(enabled, "telegram")
 	}
-	if ch.Discord.Enabled {
-		enabled = append(enabled, "discord")
-	}
 	if ch.Feishu.Enabled {
 		enabled = append(enabled, "feishu")
-	}
-	if ch.DingTalk.Enabled {
-		enabled = append(enabled, "dingtalk")
-	}
-	if ch.Slack.Enabled {
-		enabled = append(enabled, "slack")
-	}
-	if ch.LINE.Enabled {
-		enabled = append(enabled, "line")
-	}
-	if ch.QQ.Enabled {
-		enabled = append(enabled, "qq")
-	}
-	if ch.WeComApp.Enabled {
-		enabled = append(enabled, "wecom_app")
-	}
-	if ch.OneBot.Enabled {
-		enabled = append(enabled, "onebot")
 	}
 	return enabled
 }

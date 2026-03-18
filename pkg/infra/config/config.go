@@ -52,7 +52,6 @@ type Config struct {
 	Gateway   GatewayConfig   `json:"gateway,omitempty"`
 	Tools     ToolsConfig     `json:"tools,omitempty"`
 	Heartbeat HeartbeatConfig `json:"heartbeat,omitempty"`
-	Devices   DevicesConfig   `json:"devices,omitempty"`
 	Logging   LoggingConfig   `json:"logging,omitempty"`
 }
 
@@ -199,6 +198,7 @@ type AgentDefaults struct {
 	MaxTokens                 int      `json:"max_tokens,omitempty"               env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOKENS"`
 	Temperature               *float64 `json:"temperature,omitempty"              env:"PICOCLAW_AGENTS_DEFAULTS_TEMPERATURE"`
 	MaxToolIterations         int      `json:"max_tool_iterations,omitempty"      env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
+	ThinkingLevel             string   `json:"thinking_level,omitempty"           env:"PICOCLAW_AGENTS_DEFAULTS_THINKING_LEVEL"`
 }
 
 // GetPrimaryModel returns the primary (main) model for the agent loop.

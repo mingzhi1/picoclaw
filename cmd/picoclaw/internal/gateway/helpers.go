@@ -12,19 +12,9 @@ import (
 	"github.com/sipeed/picoclaw/pkg/agent"
 	"github.com/sipeed/picoclaw/pkg/core/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
-	_ "github.com/sipeed/picoclaw/pkg/channels/dingtalk"
-	_ "github.com/sipeed/picoclaw/pkg/channels/discord"
+	_ "github.com/sipeed/picoclaw/pkg/channels/cli"
 	_ "github.com/sipeed/picoclaw/pkg/channels/feishu"
-	_ "github.com/sipeed/picoclaw/pkg/channels/line"
-	_ "github.com/sipeed/picoclaw/pkg/channels/maixcam"
-	_ "github.com/sipeed/picoclaw/pkg/channels/onebot"
-	_ "github.com/sipeed/picoclaw/pkg/channels/pico"
-	_ "github.com/sipeed/picoclaw/pkg/channels/qq"
-	_ "github.com/sipeed/picoclaw/pkg/channels/slack"
 	_ "github.com/sipeed/picoclaw/pkg/channels/telegram"
-	_ "github.com/sipeed/picoclaw/pkg/channels/wecom"
-	_ "github.com/sipeed/picoclaw/pkg/channels/whatsapp"
-	_ "github.com/sipeed/picoclaw/pkg/channels/whatsapp_native"
 	"github.com/sipeed/picoclaw/pkg/infra/config"
 	"github.com/sipeed/picoclaw/pkg/infra/cron"
 	"github.com/sipeed/picoclaw/pkg/infra/health"
@@ -168,9 +158,6 @@ func gatewayCmd(debug bool) error {
 		fmt.Printf("Error starting heartbeat service: %v\n", err)
 	}
 	fmt.Println("✓ Heartbeat service started")
-
-	// Device monitoring (I2C/SPI tools + USB hotplug) is now handled by
-	// the extension manager inside AgentLoop. See pkg/extension/devices/.
 
 	// Setup shared HTTP server with health endpoints and webhook handlers
 	healthServer := health.NewServer(cfg.Gateway.Host, cfg.Gateway.Port)

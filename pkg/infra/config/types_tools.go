@@ -12,10 +12,7 @@ type HeartbeatConfig struct {
 	Interval int  `json:"interval,omitempty" env:"PICOCLAW_HEARTBEAT_INTERVAL"` // minutes, min 5
 }
 
-type DevicesConfig struct {
-	Enabled    bool `json:"enabled,omitempty"     env:"PICOCLAW_DEVICES_ENABLED"`
-	MonitorUSB bool `json:"monitor_usb,omitempty" env:"PICOCLAW_DEVICES_MONITOR_USB"`
-}
+
 
 // LoggingConfig controls log output.
 type LoggingConfig struct {

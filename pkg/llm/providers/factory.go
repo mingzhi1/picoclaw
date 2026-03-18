@@ -199,6 +199,47 @@ func resolveProviderSelection(cfg *config.Config) (providerSelection, error) {
 			}
 			sel.connectMode = cfg.Providers.GitHubCopilot.ConnectMode
 			return sel, nil
+		case "iflow":
+			if cfg.Providers.IFlow.APIKey != "" {
+				sel.apiKey = cfg.Providers.IFlow.APIKey
+				sel.apiBase = cfg.Providers.IFlow.APIBase
+				sel.proxy = cfg.Providers.IFlow.Proxy
+				if sel.apiBase == "" {
+					sel.apiBase = "https://apis.iflow.cn/v1"
+				}
+			} else if key, base, m := ReadIFlowCredentials(); key != "" {
+				// Auto-detect from ~/.iflow/
+				sel.apiKey = key
+				sel.apiBase = base
+				if m != "" && sel.model == "" {
+					sel.model = m
+				}
+			}
+		case "qwen", "tongyi":
+			if cfg.Providers.Qwen.APIKey != "" {
+				sel.apiKey = cfg.Providers.Qwen.APIKey
+				sel.apiBase = cfg.Providers.Qwen.APIBase
+				sel.proxy = cfg.Providers.Qwen.Proxy
+				if sel.apiBase == "" {
+					sel.apiBase = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+				}
+			} else if key, base, m, _ := ReadQwenCredentials(); key != "" {
+				// Auto-detect from ~/.qwen/
+				sel.apiKey = key
+				sel.apiBase = base
+				if m != "" && sel.model == "" {
+				sel.model = m
+				}
+			}
+		case "kilocode", "kilo":
+			if key, base, m := ReadKiloCodeCredentials(); key != "" {
+				// Auto-detect from ~/.kilocode/cli/
+				sel.apiKey = key
+				sel.apiBase = base
+				if m != "" && sel.model == "" {
+					sel.model = m
+				}
+			}
 		}
 	}
 
@@ -299,6 +340,30 @@ func resolveProviderSelection(cfg *config.Config) (providerSelection, error) {
 			sel.proxy = cfg.Providers.Mistral.Proxy
 			if sel.apiBase == "" {
 				sel.apiBase = "https://api.mistral.ai/v1"
+			}
+		case (strings.Contains(lowerModel, "iflow") || strings.HasPrefix(model, "iflow/") || strings.HasPrefix(model, "iFlow")):
+			if cfg.Providers.IFlow.APIKey != "" {
+				sel.apiKey = cfg.Providers.IFlow.APIKey
+				sel.apiBase = cfg.Providers.IFlow.APIBase
+				sel.proxy = cfg.Providers.IFlow.Proxy
+				if sel.apiBase == "" {
+					sel.apiBase = "https://apis.iflow.cn/v1"
+				}
+			} else if key, base, _ := ReadIFlowCredentials(); key != "" {
+				sel.apiKey = key
+				sel.apiBase = base
+			}
+		case (strings.Contains(lowerModel, "qwen") || strings.HasPrefix(model, "qwen/") || strings.HasPrefix(model, "qwen3")):
+			if cfg.Providers.Qwen.APIKey != "" {
+				sel.apiKey = cfg.Providers.Qwen.APIKey
+				sel.apiBase = cfg.Providers.Qwen.APIBase
+				sel.proxy = cfg.Providers.Qwen.Proxy
+				if sel.apiBase == "" {
+					sel.apiBase = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+				}
+			} else if key, base, _, _ := ReadQwenCredentials(); key != "" {
+				sel.apiKey = key
+				sel.apiBase = base
 			}
 		case cfg.Providers.VLLM.APIBase != "":
 			sel.apiKey = cfg.Providers.VLLM.APIKey

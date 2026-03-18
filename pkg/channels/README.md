@@ -57,11 +57,9 @@ pkg/channels/
 │   ├── init.go          # Factory registration
 │   ├── telegram.go      # Implementation
 │   └── telegram_commands.go
-├── discord/
+├── feishu/
 │   ├── init.go
-│   └── discord.go
-├── slack/ line/ onebot/ dingtalk/ feishu/ wecom/ qq/ whatsapp/ whatsapp_native/ maixcam/ pico/
-│   └── ...
+│   └── feishu.go
 
 pkg/bus/
 ├── bus.go               # MessageBus (buffer 64, safe close + drain)
@@ -145,7 +143,6 @@ After refactoring, these files have been removed and code moved to corresponding
 | _(did not exist)_ | `pkg/channels/interfaces.go` | New optional capability interfaces |
 | _(did not exist)_ | `pkg/channels/media.go` | New MediaSender interface |
 | _(did not exist)_ | `pkg/channels/webhook.go` | New WebhookHandler/HealthChecker |
-| _(did not exist)_ | `pkg/channels/whatsapp_native/` | New WhatsApp native mode (whatsmeow) |
 | _(did not exist)_ | `pkg/channels/split.go` | New message splitting (migrated from utils) |
 | _(did not exist)_ | `pkg/bus/types.go` | New structured message types |
 | _(did not exist)_ | `pkg/media/store.go` | New media file lifecycle management |
@@ -339,8 +336,7 @@ func init() {
 // cmd/picoclaw/internal/gateway/helpers.go
 import (
     _ "github.com/sipeed/picoclaw/pkg/channels/telegram"   // Triggers init() registration
-    _ "github.com/sipeed/picoclaw/pkg/channels/discord"
-    _ "github.com/sipeed/picoclaw/pkg/channels/your_new_channel"  // New addition
+    _ "github.com/sipeed/picoclaw/pkg/channels/feishu"
 )
 ```
 

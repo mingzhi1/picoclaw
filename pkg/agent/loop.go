@@ -1,4 +1,4 @@
-﻿// PicoClaw - Ultra-lightweight personal AI agent
+// PicoClaw - Ultra-lightweight personal AI agent
 // Inspired by and based on nanobot: https://github.com/HKUDS/nanobot
 // License: MIT
 //
@@ -21,7 +21,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/infra/config"
 	"github.com/sipeed/picoclaw/pkg/core"
 	"github.com/sipeed/picoclaw/pkg/extension"
-	"github.com/sipeed/picoclaw/pkg/extension/devices"
+
 	"github.com/sipeed/picoclaw/pkg/extension/voice"
 	"github.com/sipeed/picoclaw/pkg/infra/kvcache"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
@@ -186,29 +186,19 @@ func NewAgentLoop(
 
 	// Extension manager: register optional modules based on config.
 	extMgr := extension.NewManager()
-	if cfg.Devices.Enabled {
-		extMgr.Register(devices.New())
-	}
+
 	extMgr.Register(voice.New())
 
 	// Init extensions 鈥?each gets its own config map.
 	if defaultAgent != nil {
 		sttCfg := resolveSttConfig(cfg)
 
-		devCtx := extension.ExtensionContext{
-			Workspace: defaultAgent.Workspace,
-			Config: map[string]any{
-				"enabled":     cfg.Devices.Enabled,
-				"monitor_usb": cfg.Devices.MonitorUSB,
-				"bus":         msgBus,
-			},
-		}
+
 		voiceCtx := extension.ExtensionContext{
 			Workspace: defaultAgent.Workspace,
 			Config:    sttCfg,
 		}
 		extCtxByName := map[string]extension.ExtensionContext{
-			"devices": devCtx,
 			"voice":   voiceCtx,
 		}
 
@@ -314,8 +304,7 @@ func registerSharedTools(
 			agent.Tools.Register(fetchTool)
 		}
 
-		// Hardware tools (I2C, SPI) moved to pkg/extension/devices.
-		// Registered conditionally via extension manager if devices.enabled = true.
+
 
 		// Message tool
 		messageTool := tools.NewMessageTool()

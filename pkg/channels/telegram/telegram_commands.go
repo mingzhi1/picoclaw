@@ -127,17 +127,8 @@ func (c *cmd) List(ctx context.Context, message telego.Message) error {
 		if c.config.Channels.Telegram.Enabled {
 			enabled = append(enabled, "telegram")
 		}
-		if c.config.Channels.WhatsApp.Enabled {
-			enabled = append(enabled, "whatsapp")
-		}
 		if c.config.Channels.Feishu.Enabled {
 			enabled = append(enabled, "feishu")
-		}
-		if c.config.Channels.Discord.Enabled {
-			enabled = append(enabled, "discord")
-		}
-		if c.config.Channels.Slack.Enabled {
-			enabled = append(enabled, "slack")
 		}
 		response = fmt.Sprintf("Enabled Channels:\n- %s", strings.Join(enabled, "\n- "))
 

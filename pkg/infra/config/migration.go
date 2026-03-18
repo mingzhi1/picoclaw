@@ -373,6 +373,23 @@ func ConvertProvidersToModelList(cfg *Config) []ModelConfig {
 				}, true
 			},
 		},
+		{
+			providerNames: []string{"iflow"},
+			protocol:      "iflow",
+			buildConfig: func(p ProvidersConfig) (ModelConfig, bool) {
+				if p.IFlow.APIKey == "" && p.IFlow.APIBase == "" {
+					return ModelConfig{}, false
+				}
+				return ModelConfig{
+					ModelName:      "iflow",
+					Model:          "iflow/iFlow-ROME-30BA3B",
+					APIKey:         p.IFlow.APIKey,
+					APIBase:        p.IFlow.APIBase,
+					Proxy:          p.IFlow.Proxy,
+					RequestTimeout: p.IFlow.RequestTimeout,
+				}, true
+			},
+		},
 	}
 
 	// Process each provider migration

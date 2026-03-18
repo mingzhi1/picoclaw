@@ -59,9 +59,6 @@ type placeholderEntry struct {
 // channelRateConfig maps channel name to per-second rate limit.
 var channelRateConfig = map[string]float64{
 	"telegram": 20,
-	"discord":  1,
-	"slack":    1,
-	"line":     10,
 }
 
 type channelWorker struct {
@@ -210,61 +207,8 @@ func (m *Manager) initChannels() error {
 		m.initChannel("telegram", "Telegram")
 	}
 
-	if m.config.Channels.WhatsApp.Enabled {
-		waCfg := m.config.Channels.WhatsApp
-		if waCfg.UseNative {
-			m.initChannel("whatsapp_native", "WhatsApp Native")
-		} else if waCfg.BridgeURL != "" {
-			m.initChannel("whatsapp", "WhatsApp")
-		}
-	}
-
 	if m.config.Channels.Feishu.Enabled {
 		m.initChannel("feishu", "Feishu")
-	}
-
-	if m.config.Channels.Discord.Enabled && m.config.Channels.Discord.Token != "" {
-		m.initChannel("discord", "Discord")
-	}
-
-	if m.config.Channels.MaixCam.Enabled {
-		m.initChannel("maixcam", "MaixCam")
-	}
-
-	if m.config.Channels.QQ.Enabled {
-		m.initChannel("qq", "QQ")
-	}
-
-	if m.config.Channels.DingTalk.Enabled && m.config.Channels.DingTalk.ClientID != "" {
-		m.initChannel("dingtalk", "DingTalk")
-	}
-
-	if m.config.Channels.Slack.Enabled && m.config.Channels.Slack.BotToken != "" {
-		m.initChannel("slack", "Slack")
-	}
-
-	if m.config.Channels.LINE.Enabled && m.config.Channels.LINE.ChannelAccessToken != "" {
-		m.initChannel("line", "LINE")
-	}
-
-	if m.config.Channels.OneBot.Enabled && m.config.Channels.OneBot.WSUrl != "" {
-		m.initChannel("onebot", "OneBot")
-	}
-
-	if m.config.Channels.WeCom.Enabled && m.config.Channels.WeCom.Token != "" {
-		m.initChannel("wecom", "WeCom")
-	}
-
-	if m.config.Channels.WeComAIBot.Enabled && m.config.Channels.WeComAIBot.Token != "" {
-		m.initChannel("wecom_aibot", "WeCom AI Bot")
-	}
-
-	if m.config.Channels.WeComApp.Enabled && m.config.Channels.WeComApp.CorpID != "" {
-		m.initChannel("wecom_app", "WeCom App")
-	}
-
-	if m.config.Channels.Pico.Enabled && m.config.Channels.Pico.Token != "" {
-		m.initChannel("pico", "Pico")
 	}
 
 	logger.InfoCF("channels", "Channel initialization completed", map[string]any{

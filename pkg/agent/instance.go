@@ -35,6 +35,7 @@ type AgentInstance struct {
 	Subagents      *config.SubagentsConfig
 	SkillsFilter   []string
 	Candidates     []providers.FallbackCandidate
+	ThinkingLevel  ThinkingLevel // Extended thinking budget level
 	Analyser       *Analyser   // Phase 1: intent/tag analysis
 	Reflector      *Reflector  // Phase 3: post-LLM processing + slash commands
 }
@@ -71,6 +72,9 @@ func NewAgentInstance(
 
 	toolsRegistry.Register(tools.NewEditFileTool(workspace, restrict, allowWritePaths))
 	toolsRegistry.Register(tools.NewAppendFileTool(workspace, restrict, allowWritePaths))
+
+	// Codex CLI delegation: picoclaw can send coding tasks to Codex (GPT-5.x).
+	toolsRegistry.Register(tools.NewCodexExecTool(workspace))
 
 	db, err := store.Open(workspace)
 	if err != nil {
@@ -205,6 +209,7 @@ func NewAgentInstance(
 		Subagents:      subagents,
 		SkillsFilter:   skillsFilter,
 		Candidates:     candidates,
+		ThinkingLevel:  parseThinkingLevel(defaults.ThinkingLevel),
 		Analyser:       analyser,
 		Reflector:      rt,
 	}
