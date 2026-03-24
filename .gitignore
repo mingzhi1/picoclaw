@@ -53,3 +53,8 @@ dist/
 
 
 *.zip
+
+# Security internal docs (contain attack details — DO NOT publish)
+docs/design/exec_security_model.md
+*.go.*
+.trellis/*

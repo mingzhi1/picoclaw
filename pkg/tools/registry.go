@@ -207,7 +207,6 @@ var toolCategory = map[string]string{
 	"find_skills":   "skill",
 	"install_skill": "skill",
 	"spawn":         "spawn",
-	"codex_exec":    "exec",
 	"message":       "message",
 	"i2c":           "device",
 	"spi":           "device",

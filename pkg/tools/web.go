@@ -340,7 +340,7 @@ func (p *PerplexitySearchProvider) Search(ctx context.Context, query string, cou
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Perplexity API error: %s", string(body))
+		return "", fmt.Errorf("perplexity API error: %s", string(body))
 	}
 
 	var searchResp struct {

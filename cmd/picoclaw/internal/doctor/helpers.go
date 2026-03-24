@@ -3,7 +3,6 @@ package doctor
 import (
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -296,16 +295,4 @@ func getEnabledChannels(cfg *config.Config) []string {
 		enabled = append(enabled, "feishu")
 	}
 	return enabled
-}
-
-// testAPIReachable tests if an API base URL is reachable.
-// Not called by default doctor (would expose keys), but available for future use.
-func testAPIReachable(apiBase string) (int, error) {
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Head(apiBase + "/models")
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode, nil
 }

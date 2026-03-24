@@ -24,17 +24,7 @@ func createClaudeAuthProvider() (LLMProvider, error) {
 	return NewClaudeProviderWithTokenSource(cred.AccessToken, createClaudeTokenSource()), nil
 }
 
-// createCodexAuthProvider creates a Codex provider using OAuth credentials from auth store.
-func createCodexAuthProvider() (LLMProvider, error) {
-	cred, err := getCredential("openai")
-	if err != nil {
-		return nil, fmt.Errorf("loading auth credentials: %w", err)
-	}
-	if cred == nil {
-		return nil, fmt.Errorf("no credentials for openai. Run: picoclaw auth login --provider openai")
-	}
-	return NewCodexProviderWithTokenSource(cred.AccessToken, cred.AccountID, createCodexTokenSource()), nil
-}
+
 
 // ExtractProtocol extracts the protocol prefix and model identifier from a model string.
 // If no prefix is specified, it defaults to "openai".
@@ -53,7 +43,7 @@ func ExtractProtocol(model string) (protocol, modelID string) {
 
 // CreateProviderFromConfig creates a provider based on the ModelConfig.
 // It uses the protocol prefix in the Model field to determine which provider to create.
-// Supported protocols: openai, litellm, anthropic, antigravity, claude-cli, codex-cli, github-copilot
+// Supported protocols: openai, litellm, anthropic, antigravity, claude-cli, github-copilot
 // Returns the provider, the model ID (without protocol prefix), and any error.
 func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, error) {
 	if cfg == nil {
@@ -68,14 +58,6 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 
 	switch protocol {
 	case "openai":
-		// OpenAI with OAuth/token auth (Codex-style)
-		if cfg.AuthMethod == "oauth" || cfg.AuthMethod == "token" {
-			provider, err := createCodexAuthProvider()
-			if err != nil {
-				return nil, "", err
-			}
-			return provider, modelID, nil
-		}
 		// OpenAI with API key
 		if cfg.APIKey == "" && cfg.APIBase == "" {
 			return nil, "", fmt.Errorf("api_key or api_base is required for HTTP-based protocol %q", protocol)
@@ -146,12 +128,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 		}
 		return NewClaudeCliProvider(workspace), modelID, nil
 
-	case "codex-cli", "codexcli":
-		workspace := cfg.Workspace
-		if workspace == "" {
-			workspace = "."
-		}
-		return NewCodexCliProvider(workspace), modelID, nil
+
 
 	case "github-copilot", "copilot":
 		apiBase := cfg.APIBase

@@ -15,12 +15,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/core/bus"
 	"github.com/sipeed/picoclaw/pkg/core"
-	"github.com/sipeed/picoclaw/pkg/infra/utils"
+	"github.com/sipeed/picoclaw/pkg/core/bus"
+	"github.com/sipeed/picoclaw/pkg/core/state"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/infra/store"
-	"github.com/sipeed/picoclaw/pkg/core/state"
+	"github.com/sipeed/picoclaw/pkg/infra/utils"
 	"github.com/sipeed/picoclaw/pkg/tools"
 )
 
@@ -122,13 +122,6 @@ func (hs *HeartbeatService) Stop() {
 	logger.InfoC("heartbeat", "Stopping heartbeat service")
 	close(hs.stopChan)
 	hs.stopChan = nil
-}
-
-// IsRunning returns whether the service is running
-func (hs *HeartbeatService) IsRunning() bool {
-	hs.mu.RLock()
-	defer hs.mu.RUnlock()
-	return hs.stopChan != nil
 }
 
 // runLoop runs the heartbeat ticker

@@ -93,6 +93,10 @@ func DefaultConfig() *Config {
 					MaxResults: 5,
 				},
 			},
+			RAG: RAGToolsConfig{
+				Enabled:        false,
+				EmbeddingModel: "",
+			},
 			Cron: CronToolsConfig{
 				ExecTimeoutMinutes: 5,
 			},

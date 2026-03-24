@@ -132,6 +132,7 @@ func sortTurnsByTs(turns []TurnRecord) {
 
 // truncateToTokenBudget trims turns from the oldest end until total tokens fit.
 // Returns a suffix of the sorted slice (preserving newest turns).
+// Always keeps at least one turn (the most recent) even if it exceeds budget.
 func truncateToTokenBudget(turns []TurnRecord, maxTokens int) []TurnRecord {
 	total := 0
 	for _, t := range turns {
@@ -141,8 +142,8 @@ func truncateToTokenBudget(turns []TurnRecord, maxTokens int) []TurnRecord {
 		return turns
 	}
 
-	// Drop oldest turns first until we fit.
-	for len(turns) > 0 && total > maxTokens {
+	// Drop oldest turns first until we fit, but always keep at least one.
+	for len(turns) > 1 && total > maxTokens {
 		total -= turns[0].Tokens
 		turns = turns[1:]
 	}

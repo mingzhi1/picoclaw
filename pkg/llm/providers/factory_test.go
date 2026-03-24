@@ -107,30 +107,8 @@ func TestResolveProviderSelection(t *testing.T) {
 			},
 			wantType: providerTypeClaudeAuth,
 		},
-		{
-			name: "openai oauth routes to codex auth provider",
-			setup: func(cfg *config.Config) {
-				cfg.Agents.Defaults.Model = "gpt-4o"
-				cfg.Providers.OpenAI.AuthMethod = "oauth"
-			},
-			wantType: providerTypeCodexAuth,
-		},
-		{
-			name: "openai codex-cli auth routes to codex cli token provider",
-			setup: func(cfg *config.Config) {
-				cfg.Agents.Defaults.Model = "gpt-4o"
-				cfg.Providers.OpenAI.AuthMethod = "codex-cli"
-			},
-			wantType: providerTypeCodexCLIToken,
-		},
-		{
-			name: "explicit codex-code provider routes to codex cli provider type",
-			setup: func(cfg *config.Config) {
-				cfg.Agents.Defaults.Provider = "codex-code"
-				cfg.Agents.Defaults.Workspace = filepath.Join(os.TempDir(), "ws")
-			},
-			wantType: providerTypeCodexCLI,
-		},
+
+
 		{
 			name: "zhipu model uses zhipu base default",
 			setup: func(cfg *config.Config) {
@@ -239,26 +217,7 @@ func TestCreateProviderReturnsHTTPProviderForOpenRouter(t *testing.T) {
 	}
 }
 
-func TestCreateProviderReturnsCodexCliProviderForCodexCode(t *testing.T) {
-	cfg := config.DefaultConfig()
-	cfg.Agents.Defaults.Model = "test-codex"
-	cfg.ModelList = []config.ModelConfig{
-		{
-			ModelName: "test-codex",
-			Model:     "codex-cli/codex-model",
-			Workspace: filepath.Join(os.TempDir(), "workspace"),
-		},
-	}
 
-	provider, _, err := CreateProvider(cfg)
-	if err != nil {
-		t.Fatalf("CreateProvider() error = %v", err)
-	}
-
-	if _, ok := provider.(*CodexCliProvider); !ok {
-		t.Fatalf("provider type = %T, want *CodexCliProvider", provider)
-	}
-}
 
 func TestCreateProviderReturnsClaudeCliProviderForClaudeCli(t *testing.T) {
 	cfg := config.DefaultConfig()
@@ -315,8 +274,4 @@ func TestCreateProviderReturnsClaudeProviderForAnthropicOAuth(t *testing.T) {
 	// TODO: Test custom APIBase when createClaudeAuthProvider supports it
 }
 
-func TestCreateProviderReturnsCodexProviderForOpenAIOAuth(t *testing.T) {
-	// TODO: This test requires openai protocol to support auth_method: "oauth"
-	// which is not yet implemented in the new factory_provider.go
-	t.Skip("OpenAI OAuth via model_list not yet implemented")
-}
+

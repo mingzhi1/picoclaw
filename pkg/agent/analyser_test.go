@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -303,6 +304,161 @@ func TestFormatMemoryEntries_Empty(t *testing.T) {
 	result := formatMemoryEntries(nil)
 	if result != "" {
 		t.Errorf("expected empty string, got %q", result)
+	}
+}
+
+// --- Checkpoint parsing and sanitisation tests ---
+
+func TestParseResponse_Checkpoints_BasicParsing(t *testing.T) {
+	p := &Analyser{}
+
+	tests := []struct {
+		name     string
+		input    string
+		wantCP   []string // expected .Text values
+		wantSkip []bool   // expected .Skippable values (nil = don't check)
+	}{
+		{
+			name:     "with checkpoints object format",
+			input:    `{"intent":"task","tags":[],"cot_id":"task","checkpoints":[{"text":"Read config","skippable":false},{"text":"Write handler","skippable":false},{"text":"Add tests","skippable":true}]}`,
+			wantCP:   []string{"Read config", "Write handler", "Add tests"},
+			wantSkip: []bool{false, false, true},
+		},
+		{
+			name:   "empty checkpoints for chat",
+			input:  `{"intent":"chat","tags":[],"cot_id":"direct","checkpoints":[]}`,
+			wantCP: []string{},
+		},
+		{
+			name:   "missing checkpoints field",
+			input:  `{"intent":"question","tags":["go"],"cot_prompt":"think"}`,
+			wantCP: nil,
+		},
+		{
+			name:   "single checkpoint",
+			input:  `{"intent":"code","tags":[],"checkpoints":[{"text":"Write the function","skippable":false}]}`,
+			wantCP: []string{"Write the function"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := p.parseResponse(tt.input)
+			if tt.wantCP == nil {
+				if result.Checkpoints != nil && len(result.Checkpoints) != 0 {
+					t.Errorf("checkpoints = %v, want nil/empty", result.Checkpoints)
+				}
+				return
+			}
+			if len(result.Checkpoints) != len(tt.wantCP) {
+				t.Errorf("checkpoints len = %d, want %d (got %v)",
+					len(result.Checkpoints), len(tt.wantCP), result.Checkpoints)
+				return
+			}
+			for i, cp := range result.Checkpoints {
+				if cp.Text != tt.wantCP[i] {
+					t.Errorf("cp[%d].Text = %q, want %q", i, cp.Text, tt.wantCP[i])
+				}
+				if tt.wantSkip != nil && cp.Skippable != tt.wantSkip[i] {
+					t.Errorf("cp[%d].Skippable = %v, want %v", i, cp.Skippable, tt.wantSkip[i])
+				}
+			}
+		})
+	}
+}
+
+func TestParseResponse_Checkpoints_Sanitisation(t *testing.T) {
+	p := &Analyser{}
+
+	t.Run("capped at 7 items", func(t *testing.T) {
+		items := make([]string, 9)
+		for i := range items {
+			items[i] = fmt.Sprintf(`{"text":"s%d","skippable":false}`, i+1)
+		}
+		input := `{"intent":"task","tags":[],"checkpoints":[` + strings.Join(items, ",") + `]}`
+		result := p.parseResponse(input)
+		if len(result.Checkpoints) > 7 {
+			t.Errorf("checkpoints should be capped at 7, got %d", len(result.Checkpoints))
+		}
+	})
+
+	t.Run("empty steps filtered", func(t *testing.T) {
+		input := `{"intent":"task","tags":[],"checkpoints":[{"text":"step1"},{"text":""},{"text":"  "},{"text":"step2"}]}`
+		result := p.parseResponse(input)
+		if len(result.Checkpoints) != 2 {
+			t.Errorf("expected 2 steps after filtering empties, got %d: %v",
+				len(result.Checkpoints), result.Checkpoints)
+		}
+	})
+
+	t.Run("dangerous patterns stripped", func(t *testing.T) {
+		input := `{"intent":"task","tags":[],"checkpoints":[{"text":"Read the file"},{"text":"Run rm -rf /tmp/data"},{"text":"Write output"}]}`
+		result := p.parseResponse(input)
+		for _, cp := range result.Checkpoints {
+			if contains(cp.Text, "rm -rf") {
+				t.Errorf("dangerous pattern should be filtered: %q", cp.Text)
+			}
+		}
+		if len(result.Checkpoints) != 2 {
+			t.Errorf("expected 2 safe steps, got %d: %v",
+				len(result.Checkpoints), result.Checkpoints)
+		}
+	})
+
+	t.Run("long steps truncated", func(t *testing.T) {
+		longStep := strings.Repeat("x", 200)
+		input := `{"intent":"task","tags":[],"checkpoints":[{"text":"` + longStep + `"}]}`
+		result := p.parseResponse(input)
+		if len(result.Checkpoints) != 1 {
+			t.Fatalf("expected 1 step, got %d", len(result.Checkpoints))
+		}
+		if len([]rune(result.Checkpoints[0].Text)) > 120 {
+			t.Errorf("step should be truncated to 120 runes, got %d",
+				len([]rune(result.Checkpoints[0].Text)))
+		}
+	})
+}
+
+func TestPreLLM_Analyse_WithCheckpoints(t *testing.T) {
+	dir := t.TempDir()
+	ms := NewMemoryStore(dir)
+	defer ms.Close()
+
+	cotReg := NewCotRegistry(dir)
+	mp := &mockLLMProvider{
+		response: `{"intent":"code","tags":[],"cot_id":"code","cot_prompt":"","checkpoints":[{"text":"Read existing code","skippable":false},{"text":"Add new endpoint","skippable":false},{"text":"Register route","skippable":true},{"text":"Write tests","skippable":true}]}`,
+	}
+	p := NewAnalyser(mp, "test-model", cotReg)
+
+	result := p.Analyse(context.Background(), "Add a /health endpoint to the API", ms, nil, "")
+	if result.Intent != "code" {
+		t.Errorf("intent = %q, want 'code'", result.Intent)
+	}
+	if len(result.Checkpoints) != 4 {
+		t.Errorf("checkpoints len = %d, want 4: %v", len(result.Checkpoints), result.Checkpoints)
+	}
+	if result.Checkpoints[0].Text != "Read existing code" {
+		t.Errorf("cp[0].Text = %q, want 'Read existing code'", result.Checkpoints[0].Text)
+	}
+	if result.Checkpoints[2].Skippable != true {
+		t.Error("cp[2] should be skippable")
+	}
+}
+
+func TestPreLLM_Analyse_ChatNoCheckpoints(t *testing.T) {
+	dir := t.TempDir()
+	ms := NewMemoryStore(dir)
+	defer ms.Close()
+
+	cotReg := NewCotRegistry(dir)
+	mp := &mockLLMProvider{
+		response: `{"intent":"chat","tags":[],"cot_id":"direct","cot_prompt":"","checkpoints":[]}`,
+	}
+	p := NewAnalyser(mp, "test-model", cotReg)
+
+	result := p.Analyse(context.Background(), "hello", ms, nil, "")
+	if len(result.Checkpoints) != 0 {
+		t.Errorf("chat should have empty checkpoints, got %v", result.Checkpoints)
 	}
 }
 

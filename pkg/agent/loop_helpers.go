@@ -206,3 +206,74 @@ func resolveSttConfig(cfg *config.Config) map[string]any {
 	result["model"] = mc.Model
 	return result
 }
+
+// ---------------------------------------------------------------------------
+// System prompt enrichment — shared by Path A (Instant Memory) and Path B (Legacy)
+// ---------------------------------------------------------------------------
+
+// enrichSystemPrompt appends CoT template/supplement, checkpoint plan/progress,
+// skill execution plan, and memory context to the base system prompt.
+// Returns the enriched prompt string.
+func (al *AgentLoop) enrichSystemPrompt(
+	base string,
+	agent *AgentInstance,
+	result AnalyseResult,
+	channelKey string,
+	userMsg string,
+) string {
+	var sb strings.Builder
+	sb.WriteString(base)
+
+	// 1. CoT injection: template + task-specific supplement.
+	if result.CotID != "" && agent.Analyser != nil {
+		if reg := agent.Analyser.GetCotRegistry(); reg != nil {
+			tpl := reg.Get(result.CotID)
+			if tpl.Prompt != "" {
+				sb.WriteString("\n\n---\n\n")
+				sb.WriteString(tpl.Prompt)
+			}
+		}
+		if result.CotPrompt != "" {
+			sb.WriteString("\n\n### Task-Specific Notes\n\n")
+			sb.WriteString(result.CotPrompt)
+		}
+	} else if result.CotPrompt != "" {
+		sb.WriteString("\n\n---\n\n## Thinking Strategy\n\n")
+		sb.WriteString(result.CotPrompt)
+	}
+
+	// 2. Checkpoint injection: new plan or previous progress.
+	if al.checkpoints != nil && len(result.Checkpoints) > 0 {
+		al.checkpoints.Begin(channelKey, result.Checkpoints)
+		if checklist := al.checkpoints.FormatChecklist(channelKey); checklist != "" {
+			sb.WriteString("\n\n---\n\n")
+			sb.WriteString(checklist)
+		}
+	} else if al.checkpoints != nil {
+		if progress := al.checkpoints.FormatProgress(channelKey); progress != "" {
+			sb.WriteString("\n\n---\n\n")
+			sb.WriteString(progress)
+		}
+	}
+
+	// 3. Skill matching: inject tool execution plan.
+	if matched := agent.ContextBuilder.MatchSkillByMessage(userMsg); matched != nil {
+		if plan := FormatToolSteps(matched.ToolSteps, matched.Path); plan != "" {
+			sb.WriteString("\n\n---\n\n")
+			sb.WriteString(plan)
+			logger.InfoCF("agent", "Injected tool execution plan from skill",
+				map[string]any{
+					"skill":      matched.Name,
+					"steps":      len(matched.ToolSteps),
+					"skill_path": matched.Path,
+				})
+		}
+	}
+
+	// NOTE: Memory context is NOT injected here to avoid duplication.
+	// - BuildSystemPrompt() already includes full memory via GetMemoryContext().
+	// - Path A injects tag-matched memory via BuildPhase2Messages (separate user message).
+	// - Path B's full memory is already in the system prompt from BuildMessages().
+
+	return sb.String()
+}

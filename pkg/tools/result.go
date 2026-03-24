@@ -124,19 +124,6 @@ func UserResult(content string) *ToolResult {
 	}
 }
 
-// MediaResult creates a ToolResult with media refs for the user.
-// The agent will publish these refs as OutboundMediaMessage.
-//
-// Example:
-//
-//	result := MediaResult("Image generated successfully", []string{"media://abc123"})
-func MediaResult(forLLM string, mediaRefs []string) *ToolResult {
-	return &ToolResult{
-		ForLLM: forLLM,
-		Media:  mediaRefs,
-	}
-}
-
 // MarshalJSON implements custom JSON serialization.
 // The Err field is excluded from JSON output via the json:"-" tag.
 func (tr *ToolResult) MarshalJSON() ([]byte, error) {

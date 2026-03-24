@@ -58,20 +58,6 @@ func Open(workspace string) (*sql.DB, error) {
 	return db, nil
 }
 
-// Close closes the database for the given workspace.
-// Safe to call multiple times or with unknown workspaces.
-func Close(workspace string) error {
-	mu.Lock()
-	defer mu.Unlock()
-
-	db, ok := pools[workspace]
-	if !ok {
-		return nil
-	}
-	delete(pools, workspace)
-	return db.Close()
-}
-
 // CloseAll closes all open databases.  Called on process shutdown.
 func CloseAll() {
 	mu.Lock()
@@ -81,9 +67,4 @@ func CloseAll() {
 		db.Close()
 		delete(pools, ws)
 	}
-}
-
-// DBPath returns the full path to the database file.
-func DBPath(workspace string) string {
-	return filepath.Join(workspace, dbName)
 }

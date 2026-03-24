@@ -76,10 +76,6 @@ func NewProvider(apiKey, apiBase, proxy string, opts ...Option) *Provider {
 	return p
 }
 
-func NewProviderWithMaxTokensField(apiKey, apiBase, proxy, maxTokensField string) *Provider {
-	return NewProvider(apiKey, apiBase, proxy, WithMaxTokensField(maxTokensField))
-}
-
 func NewProviderWithMaxTokensFieldAndTimeout(
 	apiKey, apiBase, proxy, maxTokensField string,
 	requestTimeoutSeconds int,

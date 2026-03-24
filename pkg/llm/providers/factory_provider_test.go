@@ -216,23 +216,6 @@ func TestCreateProviderFromConfig_ClaudeCLI(t *testing.T) {
 	}
 }
 
-func TestCreateProviderFromConfig_CodexCLI(t *testing.T) {
-	cfg := &config.ModelConfig{
-		ModelName: "test-codex-cli",
-		Model:     "codex-cli/codex",
-	}
-
-	provider, modelID, err := CreateProviderFromConfig(cfg)
-	if err != nil {
-		t.Fatalf("CreateProviderFromConfig() error = %v", err)
-	}
-	if provider == nil {
-		t.Fatal("CreateProviderFromConfig() returned nil provider")
-	}
-	if modelID != "codex" {
-		t.Errorf("modelID = %q, want %q", modelID, "codex")
-	}
-}
 
 func TestCreateProviderFromConfig_MissingAPIKey(t *testing.T) {
 	cfg := &config.ModelConfig{

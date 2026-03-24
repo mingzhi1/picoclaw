@@ -68,20 +68,6 @@ const (
 	defaultCacheTTL = 5 * time.Minute
 )
 
-// NewLLMCommandReviewer creates a new LLM-based command reviewer.
-// provider should be the auxiliary (cheap) LLM provider.
-// model should be the auxiliary model ID.
-func NewLLMCommandReviewer(provider providers.LLMProvider, model string) *LLMCommandReviewer {
-	return &LLMCommandReviewer{
-		provider: provider,
-		model:    model,
-		timeout:  5 * time.Second,
-		cache:    make(map[string]cacheEntry, 64),
-		maxCache: 256,
-		cacheTTL: defaultCacheTTL,
-	}
-}
-
 // knownSafePrefixes are command prefixes that always skip LLM review.
 //
 // SECURITY: Only include commands that CANNOT execute arbitrary code.

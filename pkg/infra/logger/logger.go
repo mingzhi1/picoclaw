@@ -115,17 +115,6 @@ func EnableFileLogging(filePath string) error {
 	return nil
 }
 
-func DisableFileLogging() {
-	mu.Lock()
-	defer mu.Unlock()
-
-	if logger.file != nil {
-		logger.file.Close()
-		logger.file = nil
-		log.Println("File logging disabled")
-	}
-}
-
 func logMessage(level LogLevel, component string, message string, fields map[string]any) {
 	if level < currentLevel {
 		return
@@ -198,10 +187,6 @@ func DebugC(component string, message string) {
 	logMessage(DEBUG, component, message, nil)
 }
 
-func DebugF(message string, fields map[string]any) {
-	logMessage(DEBUG, "", message, fields)
-}
-
 func DebugCF(component string, message string, fields map[string]any) {
 	logMessage(DEBUG, component, message, fields)
 }
@@ -242,30 +227,10 @@ func Error(message string) {
 	logMessage(ERROR, "", message, nil)
 }
 
-func ErrorC(component string, message string) {
-	logMessage(ERROR, component, message, nil)
-}
-
 func ErrorF(message string, fields map[string]any) {
 	logMessage(ERROR, "", message, fields)
 }
 
 func ErrorCF(component string, message string, fields map[string]any) {
 	logMessage(ERROR, component, message, fields)
-}
-
-func Fatal(message string) {
-	logMessage(FATAL, "", message, nil)
-}
-
-func FatalC(component string, message string) {
-	logMessage(FATAL, component, message, nil)
-}
-
-func FatalF(message string, fields map[string]any) {
-	logMessage(FATAL, "", message, fields)
-}
-
-func FatalCF(component string, message string, fields map[string]any) {
-	logMessage(FATAL, component, message, fields)
 }

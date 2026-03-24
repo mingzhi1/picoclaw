@@ -47,7 +47,7 @@ func RunAgent(message, sessionKey, model string, debug bool) error {
 	}
 
 	if model != "" {
-		cfg.Agents.Defaults.ModelName = model
+		cfg.Agents.Defaults.PrimaryModel = model
 	}
 
 	provider, modelID, err := providers.CreateProvider(cfg)
@@ -57,7 +57,7 @@ func RunAgent(message, sessionKey, model string, debug bool) error {
 
 	// Use the resolved model ID from provider creation
 	if modelID != "" {
-		cfg.Agents.Defaults.ModelName = modelID
+		cfg.Agents.Defaults.PrimaryModel = modelID
 	}
 
 	msgBus := bus.NewMessageBus()
@@ -145,7 +145,7 @@ func interactiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 func simpleInteractiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Print(fmt.Sprintf("%s You: ", internal.Logo))
+		fmt.Printf("%s You: ", internal.Logo)
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {

@@ -16,25 +16,25 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/core/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/infra/config"
 	"github.com/sipeed/picoclaw/pkg/core"
+	"github.com/sipeed/picoclaw/pkg/core/bus"
 	"github.com/sipeed/picoclaw/pkg/extension"
+	"github.com/sipeed/picoclaw/pkg/infra/config"
 
+	"github.com/sipeed/picoclaw/pkg/agent/routing"
+	"github.com/sipeed/picoclaw/pkg/agent/topic"
+	"github.com/sipeed/picoclaw/pkg/core/state"
 	"github.com/sipeed/picoclaw/pkg/extension/voice"
 	"github.com/sipeed/picoclaw/pkg/infra/kvcache"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
-	"github.com/sipeed/picoclaw/pkg/infra/store"
-	"github.com/sipeed/picoclaw/pkg/llm/mcp"
 	"github.com/sipeed/picoclaw/pkg/infra/media"
-	"github.com/sipeed/picoclaw/pkg/llm/providers"
-	"github.com/sipeed/picoclaw/pkg/agent/routing"
-	"github.com/sipeed/picoclaw/pkg/agent/topic"
-	"github.com/sipeed/picoclaw/pkg/skills"
-	"github.com/sipeed/picoclaw/pkg/core/state"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/sipeed/picoclaw/pkg/infra/store"
 	"github.com/sipeed/picoclaw/pkg/infra/utils"
+	"github.com/sipeed/picoclaw/pkg/llm/mcp"
+	"github.com/sipeed/picoclaw/pkg/llm/providers"
+	"github.com/sipeed/picoclaw/pkg/skills"
+	"github.com/sipeed/picoclaw/pkg/tools"
 )
 
 type AgentLoop struct {
@@ -49,16 +49,17 @@ type AgentLoop struct {
 	channelManager *channels.Manager
 	mediaStore     media.MediaStore
 	// Phase 3 infrastructure (M1-M4)
-	turnStore      *TurnStore             // per-workspace turns.db
-	activeCtx      *ActiveContextStore    // per channel:chatID context
-	memoryDigest   *MemoryDigestWorker    // background memory distillation
-	cache          *kvcache.Store         // persistent KV cache (workspace/cache.db)
-	extensions     *extension.Manager     // optional extension modules (devices, media, voice)
-	topicTracker   *topic.Tracker         // topic lifecycle management for long conversations
-	factStore      *FactStore             // entity-attribute-value facts with versioning
+	turnStore    *TurnStore          // per-workspace turns.db
+	activeCtx    *ActiveContextStore // per channel:chatID context
+	memoryDigest *MemoryDigestWorker // background memory distillation
+	cache        *kvcache.Store      // persistent KV cache (workspace/cache.db)
+	extensions   *extension.Manager  // optional extension modules (devices, media, voice)
+	topicTracker *topic.Tracker      // topic lifecycle management for long conversations
+	factStore    *FactStore          // entity-attribute-value facts with versioning
+	checkpoints  *CheckpointTracker  // LLM execution checkpoint lifecycle
 	// Concurrency control
-	msgSem         chan struct{}           // limits concurrent message processing
-	sessionLocks   sync.Map               // per-session mutex to serialize same-session messages
+	msgSem       chan struct{} // limits concurrent message processing
+	sessionLocks sync.Map      // per-session mutex to serialize same-session messages
 }
 
 // processOptions configures how a message is processed
@@ -193,13 +194,12 @@ func NewAgentLoop(
 	if defaultAgent != nil {
 		sttCfg := resolveSttConfig(cfg)
 
-
 		voiceCtx := extension.ExtensionContext{
 			Workspace: defaultAgent.Workspace,
 			Config:    sttCfg,
 		}
 		extCtxByName := map[string]extension.ExtensionContext{
-			"voice":   voiceCtx,
+			"voice": voiceCtx,
 		}
 
 		for _, ext := range extMgr.List() {
@@ -221,21 +221,33 @@ func NewAgentLoop(
 		}
 	}
 
+	// CheckpointTracker: manages LLM execution checkpoints.
+	cpTracker := NewCheckpointTracker()
+
+	// Register checkpoint tool so the LLM can manage checkpoints during execution.
+	cpTool := tools.NewCheckpointTool(cpTracker)
+	for _, aid := range registry.ListAgentIDs() {
+		if a, ok := registry.GetAgent(aid); ok {
+			a.Tools.Register(cpTool)
+		}
+	}
+
 	return &AgentLoop{
-		bus:            msgBus,
-		cfg:            cfg,
-		registry:       registry,
-		state:          stateManager,
-		summarizing:    sync.Map{},
-		fallback:       fallbackChain,
-		turnStore:      ts,
-		activeCtx:      activeCtxStore,
-		memoryDigest:   digestWorker,
-		cache:          kvCache,
-		extensions:     extMgr,
-		topicTracker:   topicTracker,
-		factStore:      factStoreInstance,
-		msgSem:         make(chan struct{}, 4), // max 4 concurrent message handlers
+		bus:          msgBus,
+		cfg:          cfg,
+		registry:     registry,
+		state:        stateManager,
+		summarizing:  sync.Map{},
+		fallback:     fallbackChain,
+		turnStore:    ts,
+		activeCtx:    activeCtxStore,
+		memoryDigest: digestWorker,
+		cache:        kvCache,
+		extensions:   extMgr,
+		topicTracker: topicTracker,
+		factStore:    factStoreInstance,
+		checkpoints:  cpTracker,
+		msgSem:       make(chan struct{}, 4), // max 4 concurrent message handlers
 	}
 }
 
@@ -254,9 +266,17 @@ func (al *AgentLoop) Close() {
 	// Close each agent's MemoryStore to release SQLite file locks.
 	if al.registry != nil {
 		for _, id := range al.registry.ListAgentIDs() {
-			if agent, ok := al.registry.GetAgent(id); ok && agent.ContextBuilder != nil {
-				if mem := agent.ContextBuilder.GetMemory(); mem != nil {
-					mem.Close()
+			if agent, ok := al.registry.GetAgent(id); ok {
+				if agent.ContextBuilder != nil {
+					if mem := agent.ContextBuilder.GetMemory(); mem != nil {
+						mem.Close()
+					}
+				}
+				if agent.RAGStore != nil {
+					if err := agent.RAGStore.Close(); err != nil {
+						logger.WarnCF("agent", "Failed to close RAG store",
+							map[string]any{"agent_id": id, "error": err.Error()})
+					}
 				}
 			}
 		}
@@ -304,8 +324,6 @@ func registerSharedTools(
 			agent.Tools.Register(fetchTool)
 		}
 
-
-
 		// Message tool
 		messageTool := tools.NewMessageTool()
 		messageTool.SetSendCallback(func(channel, chatID, content string) error {
@@ -330,6 +348,9 @@ func registerSharedTools(
 		)
 		agent.Tools.Register(tools.NewFindSkillsTool(registryMgr, searchCache))
 		agent.Tools.Register(tools.NewInstallSkillTool(registryMgr, agent.Workspace))
+		if agent.RAGStore != nil {
+			agent.Tools.Register(tools.NewRAGSearchTool(agent.RAGStore.VectorStore(), agent.RAGStore.Embedder()))
+		}
 
 		// Spawn tool with allowlist checker
 		subagentManager := tools.NewSubagentManager(provider, agent.Model, agent.Workspace, msgBus)
@@ -766,39 +787,15 @@ func (al *AgentLoop) runAgentLoop(
 			}
 		}
 
-		// Enrich system prompt with CoT 鈥?template + task-specific supplement.
-		if analyseResult.CotID != "" && agent.Analyser != nil {
-			if reg := agent.Analyser.GetCotRegistry(); reg != nil {
-				tpl := reg.Get(analyseResult.CotID)
-				if tpl.Prompt != "" {
-					systemPrompt += "\n\n---\n\n" + tpl.Prompt
-				}
-			}
-			if analyseResult.CotPrompt != "" {
-				systemPrompt += "\n\n### Task-Specific Notes\n\n" + analyseResult.CotPrompt
-			}
-		} else if analyseResult.CotPrompt != "" {
-			// Legacy fallback: raw CoT prompt (no template selected).
-			systemPrompt += "\n\n---\n\n## Thinking Strategy\n\n" + analyseResult.CotPrompt
-		}
+		// Enrich system prompt with CoT, checkpoints, skill plans, memory context.
+		systemPrompt = al.enrichSystemPrompt(systemPrompt, agent, analyseResult, channelKey, opts.UserMessage)
 
-		// Match skill by keywords and inject tool execution plan (no LLM needed).
-		if matched := agent.ContextBuilder.MatchSkillByMessage(opts.UserMessage); matched != nil {
-			if plan := FormatToolSteps(matched.ToolSteps, matched.Path); plan != "" {
-				systemPrompt += "\n\n---\n\n" + plan
-				logger.InfoCF("agent", "Injected tool execution plan from skill",
-					map[string]any{
-						"skill":      matched.Name,
-						"steps":      len(matched.ToolSteps),
-						"skill_path": matched.Path,
-					})
-			}
-		}
 		// Select relevant turns from TurnStore.
 		cfg := DefaultInstantMemoryCfg(agent.ContextWindow)
 		instantTurns := BuildInstantMemory(al.turnStore, analyseResult.Tags, channelKey, cfg)
 
-		// Get long-term memory by tags.
+		// Get long-term memory by tags (already included in enriched prompt,
+		// but also passed to BuildPhase2Messages for KV-cache friendly ordering).
 		longTermMemory := analyseResult.MemoryContext
 
 		// Assemble Phase 2 messages in KV cache friendly order.
@@ -820,6 +817,7 @@ func (al *AgentLoop) runAgentLoop(
 				"total_messages": len(messages),
 				"has_cot":        analyseResult.CotPrompt != "",
 				"has_memories":   longTermMemory != "",
+				"checkpoints":    len(analyseResult.Checkpoints),
 			})
 	} else {
 		// --- Path B: Legacy SessionManager ---
@@ -846,50 +844,15 @@ func (al *AgentLoop) runAgentLoop(
 			}
 			analyseResult = agent.Analyser.Analyse(ctx, opts.UserMessage, agent.ContextBuilder.GetMemory(), actCtx, "")
 
-			var enrichment strings.Builder
-			// CoT injection: template + task-specific supplement (hybrid mode).
-			if analyseResult.CotID != "" {
-				if reg := agent.Analyser.GetCotRegistry(); reg != nil {
-					tpl := reg.Get(analyseResult.CotID)
-					if tpl.Prompt != "" {
-						enrichment.WriteString("\n\n---\n\n")
-						enrichment.WriteString(tpl.Prompt)
-					}
-				}
-				if analyseResult.CotPrompt != "" {
-					enrichment.WriteString("\n\n### Task-Specific Notes\n\n")
-					enrichment.WriteString(analyseResult.CotPrompt)
-				}
-			} else if analyseResult.CotPrompt != "" {
-				// Legacy fallback: raw CoT prompt (no template selected).
-				enrichment.WriteString("\n\n---\n\n## Thinking Strategy\n\n")
-				enrichment.WriteString(analyseResult.CotPrompt)
-			}
-			if analyseResult.MemoryContext != "" {
-				enrichment.WriteString("\n\n---\n\n# Contextual Memories (pre-analysed)\n\n")
-				enrichment.WriteString(analyseResult.MemoryContext)
-			}
+			// Build enrichment using shared function. Pass empty base to get only the delta.
+			enrichment := al.enrichSystemPrompt("", agent, analyseResult, channelKey, opts.UserMessage)
 
-			// Skill matching 鈥?inject tool execution plan (same as Path A).
-			if matched := agent.ContextBuilder.MatchSkillByMessage(opts.UserMessage); matched != nil {
-				if plan := FormatToolSteps(matched.ToolSteps, matched.Path); plan != "" {
-					enrichment.WriteString("\n\n---\n\n")
-					enrichment.WriteString(plan)
-					logger.InfoCF("agent", "Injected tool execution plan from skill (legacy path)",
-						map[string]any{
-							"skill":      matched.Name,
-							"steps":      len(matched.ToolSteps),
-							"skill_path": matched.Path,
-						})
-				}
-			}
-
-			if enrichment.Len() > 0 && len(messages) > 0 && messages[0].Role == "system" {
-				messages[0].Content += enrichment.String()
+			if enrichment != "" && len(messages) > 0 && messages[0].Role == "system" {
+				messages[0].Content += enrichment
 				if len(messages[0].SystemParts) > 0 {
 					enrichBlock := providers.ContentBlock{
 						Type: "text",
-						Text: enrichment.String(),
+						Text: enrichment,
 					}
 					messages[0].SystemParts = append(messages[0].SystemParts, enrichBlock)
 				}
@@ -950,8 +913,9 @@ func (al *AgentLoop) runAgentLoop(
 	// 6.5. Phase 3 鈥?Synchronous part (< 2ms): score + Active Context update.
 	// MUST run before PublishOutbound so the next turn's Phase 1 sees fresh context.
 	if agent.Reflector != nil && opts.UserMessage != "" {
-		score := agent.Reflector.SyncPhase3(runtimeInput)
+		score, cpSummary := agent.Reflector.SyncPhase3(runtimeInput, al.checkpoints)
 		runtimeInput.Score = score
+		runtimeInput.CheckpointSummary = cpSummary
 
 		// Update Active Context for this channel.
 		if al.activeCtx != nil {

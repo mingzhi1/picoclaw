@@ -34,8 +34,8 @@ The name "Meta" reflects exactly what makes this project different:
 - **Go-native** — Single self-contained binary, no external runtime, runs on RISC-V / ARM / x86
 - **Layered, not monolithic** — Each phase is a separate, testable component
 - **Security-first** — 4-layer filesystem sandbox + command guard with allow/deny patterns
-- **Channel-agnostic** — Same agent logic serves CLI, Telegram, Discord, DingTalk, LINE, WeCom, and more
-- **Extension-first** — Optional capabilities (devices, voice) plug in via a unified lifecycle framework
+- **Channel-agnostic** — Same agent logic serves CLI, Telegram, Feishu, and more
+- **Extension-first** — Optional capabilities (voice) plug in via a unified lifecycle framework
 
 ## 🧠 How It Thinks — The 3-Phase Architecture
 
@@ -44,7 +44,7 @@ Every user interaction flows through three distinct phases. This separation allo
 ```
 ┌──────────────────────────────────────────────────────────┐
 │                     Entry Points                          │
-│  Telegram · Discord · DingTalk · LINE · CLI · MaixCam    │
+│              Telegram · Feishu · CLI                        │
 └────────────────────────┬─────────────────────────────────┘
                          │  MessageBus (pub/sub)
                          ▼
@@ -162,15 +162,7 @@ metaclaw agent -m "What is 2+2?"
 | Channel | Setup | Notes |
 |---------|-------|-------|
 | **Telegram** | ⭐ Easy | Recommended. Long-polling, no public IP needed |
-| **Discord** | ⭐ Easy | Socket Mode, group/DM support |
-| **Slack** | ⭐ Easy | Socket Mode, no public IP needed |
-| **WhatsApp** | ⭐ Easy | Native (whatsmeow) or bridge |
-| **QQ** | ⭐⭐ Medium | Official bot API |
-| **DingTalk** | ⭐⭐ Medium | Stream mode, no public IP |
-| **WeCom** | ⭐⭐⭐ Hard | Bot / App / AI Bot modes |
-| **LINE** | ⭐⭐⭐ Hard | HTTPS webhook required |
-| **Feishu** | ⭐⭐⭐ Hard | WebSocket/SDK mode |
-| **OneBot** | ⭐⭐ Medium | NapCat/Go-CQHTTP compatible |
+| **Feishu** | ⭐⭐ Medium | WebSocket/SDK mode |
 
 All webhook channels share a single Gateway HTTP server (`127.0.0.1:18790` by default).
 

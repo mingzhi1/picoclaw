@@ -196,7 +196,7 @@ func (sl *SkillsLoader) BuildSkillsSummary() string {
 		escapedDesc := escapeXML(s.Description)
 		escapedPath := escapeXML(s.Path)
 
-		lines = append(lines, fmt.Sprintf("  <skill>"))
+		lines = append(lines, "  <skill>")
 		lines = append(lines, fmt.Sprintf("    <name>%s</name>", escapedName))
 		lines = append(lines, fmt.Sprintf("    <description>%s</description>", escapedDesc))
 		lines = append(lines, fmt.Sprintf("    <location>%s</location>", escapedPath))
@@ -304,8 +304,8 @@ func escapeXML(s string) string {
 // Looks for lines matching: "N. [parallel|serial] action1 | action2"
 // Example:
 //
-//	1. [parallel] read_file {skill_path} | read_file ~/.picoclaw/config.json
-//	2. [serial] edit_file ~/.picoclaw/config.json
+//  1. [parallel] read_file {skill_path} | read_file ~/.picoclaw/config.json
+//  2. [serial] edit_file ~/.picoclaw/config.json
 func parseToolSteps(content string) []ToolStep {
 	// Normalize line endings
 	content = strings.ReplaceAll(content, "\r\n", "\n")

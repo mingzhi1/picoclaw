@@ -66,6 +66,19 @@ func CalcTurnScore(input RuntimeInput) int {
 		score += 3
 	}
 
+	// --- Checkpoint awareness ---
+	// Turns with checkpoint progress are high-value for memory.
+	if input.CheckpointSummary != "" {
+		score += 2 // has checkpoint activity
+		if strings.Contains(input.CheckpointSummary, "passed") &&
+			!strings.Contains(input.CheckpointSummary, "pending") {
+			score += 3 // all checkpoints resolved — task completion turn
+		}
+		if strings.Contains(input.CheckpointSummary, "failed") {
+			score += 1 // failures are informative for future planning
+		}
+	}
+
 	return score
 }
 

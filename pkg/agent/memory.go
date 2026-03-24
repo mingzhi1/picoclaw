@@ -1,4 +1,4 @@
-﻿// PicoClaw - Ultra-lightweight personal AI agent
+// PicoClaw - Ultra-lightweight personal AI agent
 // Inspired by and based on nanobot: https://github.com/HKUDS/nanobot
 // License: MIT
 //
@@ -248,11 +248,6 @@ func normaliseTags(tags []string) []string {
 		}
 	}
 	return out
-}
-
-// joinTags joins tags with "," for storage.
-func joinTags(tags []string) string {
-	return strings.Join(normaliseTags(tags), ",")
 }
 
 // splitTags splits a stored tag string back into a slice.

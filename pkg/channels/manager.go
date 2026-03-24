@@ -17,9 +17,9 @@ import (
 
 	"golang.org/x/time/rate"
 
+	"github.com/sipeed/picoclaw/pkg/core"
 	"github.com/sipeed/picoclaw/pkg/core/bus"
 	"github.com/sipeed/picoclaw/pkg/infra/config"
-	"github.com/sipeed/picoclaw/pkg/core"
 	"github.com/sipeed/picoclaw/pkg/infra/health"
 	"github.com/sipeed/picoclaw/pkg/infra/logger"
 	"github.com/sipeed/picoclaw/pkg/infra/media"
@@ -791,6 +791,6 @@ func (m *Manager) SendToChannel(ctx context.Context, channelName, chatID, conten
 	}
 
 	// Fallback: direct send (should not happen)
-	channel, _ := m.channels[channelName]
+	channel := m.channels[channelName]
 	return channel.Send(ctx, msg)
 }

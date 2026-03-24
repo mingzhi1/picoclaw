@@ -1,4 +1,4 @@
-﻿// PicoClaw - Ultra-lightweight personal AI agent
+// PicoClaw - Ultra-lightweight personal AI agent
 // License: MIT
 //
 // Copyright (c) 2026 PicoClaw contributors
@@ -36,16 +36,17 @@ import (
 
 // RuntimeInput captures everything that happened during a single agent turn.
 type RuntimeInput struct {
-	UserMessage    string   // Original user message
-	AssistantReply string   // Main LLM's final response
-	Intent         string   // Pre-LLM detected intent
-	Tags           []string // Pre-LLM extracted tags
-	CotPrompt      string   // Generated thinking strategy
-	ToolCalls      []ToolCallRecord
-	Iterations     int // Number of LLM iterations used
-	Score          int // Phase 3 CalcTurnScore result (set by SyncPhase3)
-	ChannelKey     string // "channel:chatID" (set by runAgentLoop)
-	TotalTokens    int // Cumulative real API token usage for this turn (0 if unavailable)
+	UserMessage       string   // Original user message
+	AssistantReply    string   // Main LLM's final response
+	Intent            string   // Pre-LLM detected intent
+	Tags              []string // Pre-LLM extracted tags
+	CotPrompt         string   // Generated thinking strategy
+	ToolCalls         []ToolCallRecord
+	Iterations        int    // Number of LLM iterations used
+	Score             int    // Phase 3 CalcTurnScore result (set by SyncPhase3)
+	ChannelKey        string // "channel:chatID" (set by runAgentLoop)
+	TotalTokens       int    // Cumulative real API token usage for this turn (0 if unavailable)
+	CheckpointSummary string // Compact checkpoint status (set by SyncPhase3)
 }
 
 // ToolCallRecord captures one tool invocation and its outcome.
@@ -89,6 +90,7 @@ type Reflector struct {
 	agentRegistry  *AgentRegistry         // For /show, /list, /switch
 	channelManager *channels.Manager      // For /list channels, /switch channel
 	turnStore      *TurnStore             // For /tokens stats
+	ragStore       *RAGStore              // For /rag commands
 }
 
 
@@ -164,6 +166,12 @@ func NewReflector(provider providers.LLMProvider, model string) *Reflector {
 		Description: "Token usage statistics from turn history",
 		Handler:     r.cmdTokens,
 	})
+	r.RegisterCommand(CommandDef{
+		Name:        "rag",
+		Usage:       "/rag [add|list|search|remove] ...",
+		Description: "Manage RAG knowledge base",
+		Handler:     r.cmdRAG,
+	})
 
 	return r
 }
@@ -216,19 +224,41 @@ func (r *Reflector) SetTurnStore(ts *TurnStore) {
 	r.turnStore = ts
 }
 
+// SetRAGStore provides the Reflector with access to the RAGStore for /rag commands.
+func (r *Reflector) SetRAGStore(rs *RAGStore) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ragStore = rs
+}
+
 // ---------------------------------------------------------------------------
 // Post-LLM: async execution
 // ---------------------------------------------------------------------------
 
 // SyncPhase3 runs the synchronous, low-latency part of Phase 3:
-// it calculates the Turn score and returns it. The caller must invoke this
-// BEFORE PublishOutbound so that Active Context is ready for the next turn.
+// it evaluates checkpoints, calculates the Turn score, and returns it.
+// The caller must invoke this BEFORE PublishOutbound so that Active Context
+// is ready for the next turn.
 // Execution target: < 2ms (pure CPU, no I/O).
-func (r *Reflector) SyncPhase3(input RuntimeInput) int {
+func (r *Reflector) SyncPhase3(input RuntimeInput, ct *CheckpointTracker) (int, string) {
+	// Evaluate checkpoint completion heuristically.
+	var cpSummary string
+	if ct != nil && input.ChannelKey != "" {
+		ct.Evaluate(input.ChannelKey, input)
+		// Clear checkpoint plan if all checkpoints are resolved.
+		if !ct.HasPending(input.ChannelKey) {
+			ct.Clear(input.ChannelKey)
+			logger.InfoCF("checkpoint", "All checkpoints resolved, cleared plan",
+				map[string]any{"channel": input.ChannelKey})
+		}
+		cpSummary = ct.CompactSummary(input.ChannelKey)
+	}
+
 	score := CalcTurnScore(input)
-	logger.DebugCF("reflector", "SyncPhase3 score",
-		map[string]any{"score": score, "intent": input.Intent, "tools": len(input.ToolCalls)})
-	return score
+	logger.DebugCF("reflector", "SyncPhase3",
+		map[string]any{"score": score, "intent": input.Intent,
+			"tools": len(input.ToolCalls), "checkpoints": cpSummary})
+	return score, cpSummary
 }
 
 // AsyncPhase3 runs the asynchronous post-turn work: persisting TurnRecord,
@@ -266,6 +296,11 @@ func (r *Reflector) AsyncPhase3(input RuntimeInput, memory *MemoryStore, turnSto
 
 		// Persist TurnRecord to turns.db.
 		if turnStore != nil && input.UserMessage != "" {
+			reply := sanitizeReply(input.AssistantReply)
+			// Append checkpoint summary to persisted reply for memory context.
+			if input.CheckpointSummary != "" {
+				reply += "\n[Checkpoints: " + input.CheckpointSummary + "]"
+			}
 			record := TurnRecord{
 				Ts:         time.Now().Unix(),
 				ChannelKey: input.ChannelKey,
@@ -275,7 +310,7 @@ func (r *Reflector) AsyncPhase3(input RuntimeInput, memory *MemoryStore, turnSto
 				Tokens:     input.TotalTokens, // real API usage; estimateTokens() used as fallback when 0
 				Status:     "pending",
 				UserMsg:    sanitizeUserMsg(input.UserMessage),
-				Reply:      sanitizeReply(input.AssistantReply),
+				Reply:      reply,
 				ToolCalls:  input.ToolCalls,
 			}
 			if err := turnStore.Insert(record); err != nil {

@@ -17,10 +17,7 @@ type providerType int
 const (
 	providerTypeHTTPCompat providerType = iota
 	providerTypeClaudeAuth
-	providerTypeCodexAuth
-	providerTypeCodexCLIToken
 	providerTypeClaudeCLI
-	providerTypeCodexCLI
 	providerTypeGitHubCopilot
 )
 
@@ -58,16 +55,8 @@ func resolveProviderSelection(cfg *config.Config) (providerSelection, error) {
 				}
 			}
 		case "openai", "gpt":
-			if cfg.Providers.OpenAI.APIKey != "" || cfg.Providers.OpenAI.AuthMethod != "" {
+			if cfg.Providers.OpenAI.APIKey != "" {
 				sel.enableWebSearch = cfg.Providers.OpenAI.WebSearch
-				if cfg.Providers.OpenAI.AuthMethod == "codex-cli" {
-					sel.providerType = providerTypeCodexCLIToken
-					return sel, nil
-				}
-				if cfg.Providers.OpenAI.AuthMethod == "oauth" || cfg.Providers.OpenAI.AuthMethod == "token" {
-					sel.providerType = providerTypeCodexAuth
-					return sel, nil
-				}
 				sel.apiKey = cfg.Providers.OpenAI.APIKey
 				sel.apiBase = cfg.Providers.OpenAI.APIBase
 				sel.proxy = cfg.Providers.OpenAI.Proxy
@@ -161,14 +150,7 @@ func resolveProviderSelection(cfg *config.Config) (providerSelection, error) {
 			sel.providerType = providerTypeClaudeCLI
 			sel.workspace = workspace
 			return sel, nil
-		case "codex-cli", "codex-code":
-			workspace := cfg.WorkspacePath()
-			if workspace == "" {
-				workspace = "."
-			}
-			sel.providerType = providerTypeCodexCLI
-			sel.workspace = workspace
-			return sel, nil
+
 		case "deepseek":
 			if cfg.Providers.DeepSeek.APIKey != "" {
 				sel.apiKey = cfg.Providers.DeepSeek.APIKey
@@ -283,16 +265,7 @@ func resolveProviderSelection(cfg *config.Config) (providerSelection, error) {
 				sel.apiBase = defaultAnthropicAPIBase
 			}
 		case (strings.Contains(lowerModel, "gpt") || strings.HasPrefix(model, "openai/")) &&
-			(cfg.Providers.OpenAI.APIKey != "" || cfg.Providers.OpenAI.AuthMethod != ""):
-			sel.enableWebSearch = cfg.Providers.OpenAI.WebSearch
-			if cfg.Providers.OpenAI.AuthMethod == "codex-cli" {
-				sel.providerType = providerTypeCodexCLIToken
-				return sel, nil
-			}
-			if cfg.Providers.OpenAI.AuthMethod == "oauth" || cfg.Providers.OpenAI.AuthMethod == "token" {
-				sel.providerType = providerTypeCodexAuth
-				return sel, nil
-			}
+			cfg.Providers.OpenAI.APIKey != "":
 			sel.apiKey = cfg.Providers.OpenAI.APIKey
 			sel.apiBase = cfg.Providers.OpenAI.APIBase
 			sel.proxy = cfg.Providers.OpenAI.Proxy

@@ -8,11 +8,13 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/infra/config"
-	"github.com/sipeed/picoclaw/pkg/infra/store"
-	"github.com/sipeed/picoclaw/pkg/llm/providers"
 	"github.com/sipeed/picoclaw/pkg/agent/routing"
 	"github.com/sipeed/picoclaw/pkg/core/session"
+	"github.com/sipeed/picoclaw/pkg/infra/config"
+	"github.com/sipeed/picoclaw/pkg/infra/logger"
+	"github.com/sipeed/picoclaw/pkg/infra/store"
+	"github.com/sipeed/picoclaw/pkg/infra/vectorstore"
+	"github.com/sipeed/picoclaw/pkg/llm/providers"
 	"github.com/sipeed/picoclaw/pkg/tools"
 )
 
@@ -36,8 +38,9 @@ type AgentInstance struct {
 	SkillsFilter   []string
 	Candidates     []providers.FallbackCandidate
 	ThinkingLevel  ThinkingLevel // Extended thinking budget level
-	Analyser       *Analyser   // Phase 1: intent/tag analysis
-	Reflector      *Reflector  // Phase 3: post-LLM processing + slash commands
+	Analyser       *Analyser     // Phase 1: intent/tag analysis
+	Reflector      *Reflector    // Phase 3: post-LLM processing + slash commands
+	RAGStore       *RAGStore     // Optional RAG store for /rag and knowledge_search
 }
 
 // NewAgentInstance creates an agent instance from config.
@@ -72,9 +75,6 @@ func NewAgentInstance(
 
 	toolsRegistry.Register(tools.NewEditFileTool(workspace, restrict, allowWritePaths))
 	toolsRegistry.Register(tools.NewAppendFileTool(workspace, restrict, allowWritePaths))
-
-	// Codex CLI delegation: picoclaw can send coding tasks to Codex (GPT-5.x).
-	toolsRegistry.Register(tools.NewCodexExecTool(workspace))
 
 	db, err := store.Open(workspace)
 	if err != nil {
@@ -192,6 +192,14 @@ func NewAgentInstance(
 	}
 	rt.SetTools(toolsRegistry)
 
+	ragStore, err := initRAGStore(cfg, workspace)
+	if err != nil {
+		logger.WarnCF("agent", "Failed to initialize RAG store",
+			map[string]any{"agent_id": agentID, "error": err.Error()})
+	} else if ragStore != nil {
+		rt.SetRAGStore(ragStore)
+	}
+
 	return &AgentInstance{
 		ID:             agentID,
 		Name:           agentName,
@@ -212,7 +220,36 @@ func NewAgentInstance(
 		ThinkingLevel:  parseThinkingLevel(defaults.ThinkingLevel),
 		Analyser:       analyser,
 		Reflector:      rt,
+		RAGStore:       ragStore,
 	}
+}
+
+func initRAGStore(cfg *config.Config, workspace string) (*RAGStore, error) {
+	if cfg == nil || !cfg.Tools.RAG.Enabled {
+		return nil, nil
+	}
+
+	modelName := strings.TrimSpace(cfg.Tools.RAG.EmbeddingModel)
+	if modelName == "" {
+		return nil, fmt.Errorf("tools.rag.embedding_model is required when tools.rag.enabled is true")
+	}
+
+	modelCfg, err := cfg.GetModelConfig(modelName)
+	if err != nil {
+		return nil, fmt.Errorf("resolve embedding model %q: %w", modelName, err)
+	}
+
+	embedder, _, err := providers.CreateEmbeddingProviderFromConfig(modelCfg)
+	if err != nil {
+		return nil, fmt.Errorf("create embedding provider for %q: %w", modelName, err)
+	}
+
+	vectors, err := vectorstore.NewSQLiteStore(filepath.Join(workspace, "rag.db"))
+	if err != nil {
+		return nil, fmt.Errorf("open vector store: %w", err)
+	}
+
+	return NewRAGStore(embedder, vectors), nil
 }
 
 // resolveAgentWorkspace determines the workspace directory for an agent.

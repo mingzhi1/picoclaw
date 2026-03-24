@@ -12,8 +12,6 @@ type HeartbeatConfig struct {
 	Interval int  `json:"interval,omitempty" env:"PICOCLAW_HEARTBEAT_INTERVAL"` // minutes, min 5
 }
 
-
-
 // LoggingConfig controls log output.
 type LoggingConfig struct {
 	Level     string `json:"level,omitempty"`      // debug, info, warn, error (default: warn)
@@ -25,11 +23,17 @@ type ToolsConfig struct {
 	AllowReadPaths  []string           `json:"allow_read_paths,omitempty"  env:"PICOCLAW_TOOLS_ALLOW_READ_PATHS"`
 	AllowWritePaths []string           `json:"allow_write_paths,omitempty" env:"PICOCLAW_TOOLS_ALLOW_WRITE_PATHS"`
 	Web             WebToolsConfig     `json:"web,omitempty"`
+	RAG             RAGToolsConfig     `json:"rag,omitempty"`
 	Cron            CronToolsConfig    `json:"cron,omitempty"`
 	Exec            ExecConfig         `json:"exec,omitempty"`
 	Skills          SkillsToolsConfig  `json:"skills,omitempty"`
 	MediaCleanup    MediaCleanupConfig `json:"media_cleanup,omitempty"`
 	MCP             MCPConfig          `json:"mcp,omitempty"`
+}
+
+type RAGToolsConfig struct {
+	Enabled        bool   `json:"enabled,omitempty"         env:"PICOCLAW_TOOLS_RAG_ENABLED"`
+	EmbeddingModel string `json:"embedding_model,omitempty" env:"PICOCLAW_TOOLS_RAG_EMBEDDING_MODEL"`
 }
 
 type BraveConfig struct {
@@ -57,12 +61,12 @@ type PerplexityConfig struct {
 }
 
 type WebToolsConfig struct {
-	Brave      BraveConfig      `json:"brave,omitempty"`
-	Tavily     TavilyConfig     `json:"tavily,omitempty"`
-	DuckDuckGo DuckDuckGoConfig `json:"duckduckgo,omitempty"`
-	Perplexity PerplexityConfig `json:"perplexity,omitempty"`
-	Proxy           string `json:"proxy,omitempty"             env:"PICOCLAW_TOOLS_WEB_PROXY"`
-	FetchLimitBytes int64  `json:"fetch_limit_bytes,omitempty" env:"PICOCLAW_TOOLS_WEB_FETCH_LIMIT_BYTES"`
+	Brave           BraveConfig      `json:"brave,omitempty"`
+	Tavily          TavilyConfig     `json:"tavily,omitempty"`
+	DuckDuckGo      DuckDuckGoConfig `json:"duckduckgo,omitempty"`
+	Perplexity      PerplexityConfig `json:"perplexity,omitempty"`
+	Proxy           string           `json:"proxy,omitempty"             env:"PICOCLAW_TOOLS_WEB_PROXY"`
+	FetchLimitBytes int64            `json:"fetch_limit_bytes,omitempty" env:"PICOCLAW_TOOLS_WEB_FETCH_LIMIT_BYTES"`
 }
 
 type CronToolsConfig struct {

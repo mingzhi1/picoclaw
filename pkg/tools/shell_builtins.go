@@ -238,8 +238,7 @@ func cmdGrep(args []string, cwd string) string {
 	matchCount := 0
 	maxMatches := 200
 
-	var searchFile func(path string)
-	searchFile = func(path string) {
+	searchFile := func(path string) {
 		if matchCount >= maxMatches {
 			return
 		}

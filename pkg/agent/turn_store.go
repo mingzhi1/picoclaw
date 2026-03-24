@@ -291,7 +291,7 @@ func (s *TurnStore) QueryByScore(channelKey string, highThreshold int) ([]TurnRe
 
 // QueryByTags returns turns matching any of the given tags for the channelKey.
 // Uses the turn_tags inverted index — exact match, no full-table scan.
-// Returns non-archived turns with score > 0, ordered by ts ASC.
+// Returns non-archived turns with score >= 0, ordered by ts ASC.
 func (s *TurnStore) QueryByTags(channelKey string, tags []string) ([]TurnRecord, error) {
 	if len(tags) == 0 {
 		return nil, nil
@@ -317,8 +317,8 @@ func (s *TurnStore) QueryByTags(channelKey string, tags []string) ([]TurnRecord,
 		return nil, nil
 	}
 
-	// Append channelKey and score filter args.
-	args = append(args, channelKey, 0)
+	// Append channelKey arg. score >= 0 includes neutral turns.
+	args = append(args, channelKey)
 
 	query := fmt.Sprintf(`
 		SELECT DISTINCT t.id, t.ts, t.channel_key, t.score, t.intent,
@@ -327,7 +327,7 @@ func (s *TurnStore) QueryByTags(channelKey string, tags []string) ([]TurnRecord,
 		JOIN turns t ON t.id = tt.turn_id
 		WHERE tt.tag IN (%s)
 		  AND tt.channel_key = ?
-		  AND t.score > ?
+		  AND t.score >= 0
 		  AND t.status != 'archived'
 		ORDER BY t.ts ASC`,
 		strings.Join(placeholders, ", "))
