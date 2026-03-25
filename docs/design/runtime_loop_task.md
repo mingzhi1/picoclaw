@@ -1,6 +1,6 @@
-﻿# Runtime Loop Implementation Tasks
+# Runtime Loop Implementation Tasks
 
-> Design ref: `docs/design/picoclaw_runtime_loop_design.md`
+> Design ref: `docs/design/runtime_loop_design.md`
 
 ## Design Decisions
 

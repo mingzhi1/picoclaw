@@ -182,7 +182,9 @@ func (t *WriteFileTool) Execute(ctx context.Context, args map[string]any) *ToolR
 		return ErrorResult(err.Error())
 	}
 
-	return SilentResult(fmt.Sprintf("File written: %s", path))
+	result := SilentResult(fmt.Sprintf("File written: %s", path))
+	result.Effect = fmt.Sprintf("wrote %s (%d bytes)", path, len(content))
+	return result
 }
 
 type ListDirTool struct {

@@ -334,7 +334,8 @@ func (ct *CheckpointTracker) AddStep(key, text string, _ int) {
 		}
 	}
 
-	plan.Steps = append(plan.Steps, Checkpoint{Text: text})
+	// New steps are required (not skippable) by default.
+	plan.Steps = append(plan.Steps, Checkpoint{Text: text, Skippable: false})
 	logger.InfoCF("checkpoint", "Step added", map[string]any{"channel": key, "text": text})
 }
 

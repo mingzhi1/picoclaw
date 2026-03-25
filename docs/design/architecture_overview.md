@@ -1,45 +1,51 @@
 # PicoClaw Architecture Overview
 
-> Status: Living Document | Updated: 2026-03-04
+> Status: Living Document | Updated: 2026-03-25
 
 ## Philosophy
 
 PicoClaw started as an ultra-lightweight personal AI agent inspired by [nanobot](https://github.com/HKUDS/nanobot). It has since evolved into a **lightweight agent framework** — still minimal in dependencies, but richer in architecture.
 
 **Core principles:**
-- **Go-native**: Single binary, no external runtime
+- **Go-native**: Single binary, no external runtime, cross-platform (RISC-V / ARM / x86)
 - **Layered, not monolithic**: Each phase is a separate, testable component
 - **Convention over configuration**: Sensible defaults, deep customization when needed
-- **Channel-agnostic**: Same agent logic serves CLI, Feishu, Telegram, Discord, WebSocket, etc.
-- **Extension-first**: Optional capabilities (devices, voice) plug in via a unified lifecycle framework
+- **Channel-agnostic**: Same agent logic serves CLI, Telegram, Feishu, Discord, and more
+- **Extension-first**: Optional capabilities (voice, devices) plug in via a unified lifecycle framework
+- **Security-first**: 4-layer filesystem sandbox + command guard with allow/deny patterns
 
 ## System Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                        Entry Points                          │
-│   Telegram · Discord · DingTalk · Pico WS · CLI · MaixCam   │
-└────────────────────────┬─────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                       Entry Points                                │
+│  Telegram · Feishu · CLI · Discord · LINE · DingTalk · WhatsApp  │
+└────────────────────────┬──────────────────────────────────────────┘
                          │  channels.Manager (two-phase StopAll)
                          │  bus.MessageBus (pub/sub)
                          ▼
-┌──────────────────────────────────────────────────────────────┐
-│                    AgentLoop (loop.go)                       │
-│                                                              │
-│  ┌──────────┐  ┌─────────────────┐  ┌──────────────────┐   │
-│  │ Phase 1  │  │    Phase 2      │  │     Phase 3      │   │
-│  │ Analyse  │→ │    Execute      │→ │     Reflect      │   │
-│  │          │  │                 │  │                  │   │
-│  │ intent   │  │  LLM ↔ Tools   │  │ score + persist  │   │
-│  │ tags     │  │  iterations     │  │ TurnStore        │   │
-│  │ CoT      │  │  multi-agent    │  │ ActiveContext     │   │
-│  └──────────┘  └─────────────────┘  └──────────────────┘   │
-│                                                              │
-│  ┌───────────────────┐  ┌──────────────────────────────┐   │
-│  │  AgentRegistry    │  │   Extension Manager          │   │
-│  │  multi-agent pool │  │   devices · voice            │   │
-│  └───────────────────┘  └──────────────────────────────┘   │
-└──────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                    AgentLoop (loop.go)                           │
+│                                                                  │
+│  ┌──────────┐  ┌─────────────────┐  ┌──────────────────┐       │
+│  │ Phase 1  │  │    Phase 2      │  │     Phase 3      │       │
+│  │ Analyse  │→ │    Execute      │→ │     Reflect      │       │
+│  │          │  │                 │  │                  │       │
+│  │ intent   │  │  LLM ↔ Tools   │  │ score + persist  │       │
+│  │ tags     │  │  iterations     │  │ TurnStore        │       │
+│  │ CoT      │  │  multi-agent    │  │ ActiveContext    │       │
+│  └──────────┘  └─────────────────┘  └──────────────────┘       │
+│                                                                  │
+│  ┌───────────────────┐  ┌──────────────────────────────┐       │
+│  │  AgentRegistry    │  │   Extension Manager          │       │
+│  │  multi-agent pool │  │   voice, devices, ...        │       │
+│  └───────────────────┘  └──────────────────────────────┘       │
+│                                                                  │
+│  ┌───────────────────┐  ┌──────────────────────────────┐       │
+│  │  TopicTracker     │  │   CheckpointTracker          │       │
+│  │  topic lifecycle  │  │   LLM execution checkpoints  │       │
+│  └───────────────────┘  └──────────────────────────────┘       │
+└──────────────────────────────────────────────────────────────────┘
           │                      │                  │
   ┌───────────┐         ┌──────────────┐    ┌────────────┐
   │   Tools   │         │    Memory    │    │   Skills   │
@@ -47,6 +53,7 @@ PicoClaw started as an ultra-lightweight personal AI agent inspired by [nanobot]
   │ (+ MCP)   │         │ TurnStore    │    │ 3-layer    │
   └───────────┘         │ KVCache      │    └────────────┘
                         │ MemoryDigest │
+                        │ FactStore    │
                         └──────────────┘
 ```
 
@@ -54,18 +61,20 @@ PicoClaw started as an ultra-lightweight personal AI agent inspired by [nanobot]
 
 | Package | Responsibility | Key Files |
 |---------|---------------|-----------|
-| `pkg/agent` | Runtime loop, phases, routing, TurnStore | `loop.go`, `analyser.go`, `reflector.go`, `context.go`, `turn_store.go` |
-| `pkg/tools` | Tool interface + builtin implementations | `registry.go`, `toolloop.go`, `filesystem.go`, `exec.go`, `subagent.go` |
-| `pkg/channels` | Channel adapters + outbound workers | `manager.go`, `telegram/`, `discord/`, `pico/`, `cli/` |
-| `pkg/extension` | Optional capability lifecycle framework | `extension.go` (Manager), `devices/`, `voice/` |
-| `pkg/infra/config` | Config loading, model/provider resolution | `config.go`, `model.go`, `load.go` |
+| `pkg/agent` | Runtime loop, phases, routing, TurnStore, topic tracking | `loop.go`, `analyser.go`, `executor.go`, `reflector.go`, `context.go`, `instance.go`, `turn_store.go`, `topic/`, `routing/`, `checkpoint_tracker.go` |
+| `pkg/tools` | Tool interface + builtin implementations | `registry.go`, `toolloop.go`, `filesystem.go`, `exec.go`, `shell_instance.go`, `subagent.go`, `mcp_tool.go` |
+| `pkg/channels` | Channel adapters + outbound workers | `manager.go`, `telegram/`, `feishu/`, `cli/`, `webhook.go` |
+| `pkg/extension` | Optional capability lifecycle framework | `extension.go` (Manager), `voice/` |
+| `pkg/infra/config` | Config loading, model/provider resolution | `config.go`, `load.go` |
 | `pkg/infra/media` | Media file ref management (always-on) | `store.go` (MediaStore interface + FileMediaStore) |
 | `pkg/infra/kvcache` | Write-through KV cache (memory + SQLite) | `kvcache.go` |
-| `pkg/infra/devices` | I2C/SPI/USB hardware service | `service.go`, `source.go` |
 | `pkg/infra/logger` | Structured context-tagged logging | `logger.go` |
-| `pkg/llm` | LLM provider abstraction + implementations | `providers/openai.go`, `providers/anthropic.go`, ... |
-| `pkg/skills` | Skill loading + keyword matching | `loader.go` |
-| `pkg/core` | Shared bus types, constants | `bus/`, `routing/`, `constants.go` |
+| `pkg/infra/store` | SQLite store abstraction + migrations | `store.go` |
+| `pkg/infra/vectorstore` | In-memory vector store for RAG | `vectorstore.go` |
+| `pkg/infra/cron` | Scheduled task execution | `cron.go` |
+| `pkg/llm` | LLM provider abstraction + implementations | `providers/openai_compat/`, `providers/anthropic/`, `providers/factory.go`, `providers/fallback.go`, `auth/`, `mcp/` |
+| `pkg/skills` | Skill loading + keyword matching | `loader.go`, `clawhub_registry.go`, `search_cache.go` |
+| `pkg/core` | Shared bus types, constants, session, state | `bus/`, `session/`, `state/`, `identity/`, `constants.go` |
 
 ### `pkg/infra` Sub-packages
 
@@ -73,13 +82,15 @@ PicoClaw started as an ultra-lightweight personal AI agent inspired by [nanobot]
 pkg/infra/
 ├── config/          Config + model list resolution
 ├── cron/            Scheduled task service
-├── devices/         Hardware abstraction (I2C, SPI, USB)
 ├── health/          HTTP health check server
 ├── heartbeat/       Periodic alive-ping to gateway
+├── httpclient/      Shared HTTP client with timeouts
 ├── kvcache/         Write-through KV (memory + SQLite)
 ├── logger/          Structured CF logger
 ├── media/           MediaStore: ref ↔ local path + TTL cleanup
-└── utils/           String truncation, misc helpers
+├── store/           SQLite store abstraction + migrations
+├── utils/           String truncation, misc helpers
+└── vectorstore/     In-memory vector store for RAG
 ```
 
 ## Phase Details
@@ -89,13 +100,15 @@ pkg/infra/
 Fast/cheap auxiliary LLM extracts structured metadata before the main LLM runs.
 
 ```
-Input:  user message + available tags
-Output: { intent, tags[], cot_prompt }
+Input:  user message + available tags + CoT learning data
+Output: { intent, tags[], tool_hints[], cot_id, cot_prompt, checkpoints[], topic_action }
 ```
 
-- Uses `auxiliary_model` (configurable, falls back to `primary_model`)
+- Uses `auxiliary_model` (configurable; fallback chain: `auxiliary_model` → `analyser_model` (deprecated) → `pre_llm_model` (deprecated) → `primary_model`)
 - Keyword-based skill matching → injects Tool Execution Plan into system prompt
-- CoT prompt injection from learning history
+- CoT prompt injection from learning history (`cot_id` selects template, `cot_prompt` is task-specific)
+- Generates `checkpoints[]` — an execution plan for Phase 2 (skippable items for flexibility)
+- Topic action decision: `continue` | `new` | `resolve` for long conversation lifecycle
 
 ### Phase 2: Execute (`loop.go` + `executor.go`)
 
@@ -106,6 +119,7 @@ repeat:
   LLM(system_prompt + messages + tools) → response
   if response.has_tool_calls:
     execute tools → append results
+    update checkpoints (CheckpointTracker)
   else:
     break → final answer
 ```
@@ -114,14 +128,17 @@ repeat:
 - Retry on context overflow with automatic message compression
 - Multi-agent routing via `AgentRegistry`
 - `SubagentManager`: concurrent-safe (value-copy snapshots, no pointer leaks)
+- Checkpoint tracking: LLM reports progress, enables resumable long tasks
+- Topic tracking: maintains topic state across turns, auto-resolve stale topics
 
 ### Phase 3: Reflect (`reflector.go`)
 
 Post-LLM processing, split into sync and async:
 
-- **SyncPhase3** (<2ms): Turn scoring + Active Context update
+- **SyncPhase3** (<2ms): Turn scoring + Active Context update + Checkpoint summary
 - **AsyncPhase3**: `TurnStore.Insert()` → SQLite persistence (with tag inverted index)
-- Slash commands: `/memory`, `/shell`, `/show`, `/switch`, `/help`
+- Slash commands: `/memory`, `/shell`, `/show`, `/switch`, `/help`, `/cot`, `/runtime`, `/rag`, `/tokens`
+- Memory extraction: background `MemoryDigestWorker` distills durable facts
 
 ## Tools Architecture
 
@@ -139,10 +156,11 @@ pkg/tools/
 │                     fileSystem interface: hostFs / sandboxFs / whitelistFs / tildeExpandFs
 │   edit.go           edit_file, append_file
 │
-├── Command Execution    ← ExecTool spawns system processes
-│   exec.go              ExecTool with guardCommand security
-│                        Fast path: Go built-in for simple commands (unrestricted mode)
-│   exec_process_*.go    Platform-specific process management
+├── Command Execution
+│   exec.go            ExecTool with guardCommand security
+│   exec_llm_review.go LLM semantic review (optional risk explanation)
+│   exec_process_*.go  Platform-specific process management
+│   exec_security.go   Command guard: deny/allow patterns, workspace restriction
 │
 ├── Shell Instance       ← Pure Go, no process spawn
 │   shell_builtins.go    ls, cat, head, tail, grep, wc, find, diff, tree, etc.
@@ -164,22 +182,26 @@ pkg/tools/
 ├── Cron
 │   cron.go              Scheduled task execution
 │
-└── Hardware (embedded)
-    spi*.go, i2c*.go     SPI/I2C for embedded devices
+├── RAG
+│   rag_search.go        RAG search with vector store
+│
+└── Checkpoint
+    checkpoint.go        Checkpoint tool for LLM progress reporting
 ```
 
 ### Security Model
 
 ```
-Tool path validation:
+File path validation:
   tildeExpandFs          ~ → $HOME expansion (all file tools)
     → whitelistFs        Config allow_read_paths / allow_write_paths
       → sandboxFs        os.Root workspace restriction
         → hostFs         Direct filesystem access
 
 ExecTool command guard:
-  denyPatterns           Block rm -rf, format, etc.
+  denyPatterns           Block rm -rf, format, dd, shutdown, fork bombs
   allowPatterns          Custom overrides (e.g. git push origin)
+  customAllowPatterns    Exempt specific commands from deny checks
   workspace restriction  Path validation for working_dir
   safePaths              /dev/null, /dev/zero, /dev/urandom always allowed
 ```
@@ -188,15 +210,53 @@ ExecTool command guard:
 
 | Layer | Scope | Storage | Purpose |
 |-------|-------|---------|---------|
-| **Instant Memory** | Per-turn | In-memory | Dynamic window from TurnStore (score ≥ threshold + tag match, channel-isolated) |
+| **Instant Memory** | Per-turn | In-memory | Dynamic window: TurnStore (score ≥ threshold + tag match, channel-isolated) |
 | **Active Context** | Per-session | In-memory | CurrentFiles + RecentErrors, injected as user message |
 | **Long-term Memory** | Persistent | SQLite `memory.db` | MemoryDigest batch extraction, searchable by tags |
+| **KV Cache** | Persistent | SQLite `cache.db` | Write-through (memory + SQLite), O(1) read, lazy TTL eviction |
+| **Fact Store** | Persistent | SQLite `turns.db` | Entity-Attribute-Value facts with versioning |
+
+### TurnStore Tag Index
+
+Tags are stored in a separate **inverted index** table — no more `LIKE '%tag%'` full scans:
+
+```sql
+-- turn_tags: one row per (tag, channel, turn)
+CREATE TABLE turn_tags (
+    tag         TEXT,
+    channel_key TEXT,
+    turn_id     TEXT,
+    ts          INTEGER,
+    PRIMARY KEY (tag, channel_key, turn_id)
+);
+CREATE INDEX idx_turn_tags_lookup ON turn_tags(tag, channel_key, ts);
+```
+
+`QueryByTags` does an indexed JOIN instead of a LIKE scan — O(k) where k = matching rows, exact match, deduplication built-in.
+
+`Insert()` wraps both `turns` and `turn_tags` writes in a single transaction for consistency.
 
 ### Turn ID Format
 
 Channel-aware, time-sortable, compact: `{channel_hash}_{timestamp_base62}_{counter}`
 
 Example: `12tdkW_VCrYNEP_1`
+
+### Topic Tracker
+
+Long conversations are organized into **topics** with lifecycle management:
+
+- **New topic**: Analyser detects topic shift → creates new topic record
+- **Continue**: Same topic continues → accumulated context
+- **Resolve**: Topic completed → marked resolved, excluded from instant memory
+
+### Checkpoint Tracker
+
+LLM execution checkpoints for long-running tasks:
+
+- Analyser generates `checkpoints[]` execution plan
+- LLM reports progress after each checkpoint
+- Enables resumable tasks and progress visibility
 
 ## Extension Framework
 
@@ -205,7 +265,6 @@ Optional capabilities are managed by a unified `extension.Manager`:
 ```
 pkg/extension/
 ├── extension.go     Manager (Register, InitOne, StartAll, StopAll)
-├── devices/         I2C/SPI tools + USB monitoring (cfg.Devices.Enabled)
 └── voice/
     ├── voice.go     Ext lifecycle + Transcriber() accessor
     └── transcriber.go  OpenAI-compatible /v1/audio/transcriptions client
@@ -217,7 +276,6 @@ pkg/extension/
 
 ```
 NewAgentLoop()
-  Register(devicesExt)  ← only if cfg.Devices.Enabled
   Register(voiceExt)    ← only if stt_model configured
   InitAll()             ← called once
   StartAll()            ← on gateway start
@@ -262,55 +320,15 @@ Concurrent readers (`GetChannel`, `dispatchLoop`) see empty maps immediately aft
 
 ---
 
-## Memory System
-
-| Layer | Scope | Storage | Purpose |
-|-------|-------|---------|---------| 
-| **Instant Memory** | Per-turn | In-memory | Dynamic window: TurnStore (score ≥ threshold + tag match) |
-| **Active Context** | Per-session | In-memory | CurrentFiles + RecentErrors, injected as user message |
-| **Long-term Memory** | Persistent | SQLite `memory.db` | MemoryDigest batch extraction, searchable by tags |
-| **KV Cache** | Persistent | SQLite + map | Write-through, O(1) read, lazy TTL eviction |
-
-### TurnStore Tag Index
-
-Tags are stored in a separate **inverted index** table — no more `LIKE '%tag%'` full scans:
-
-```sql
--- turn_tags: one row per (tag, channel, turn)
-CREATE TABLE turn_tags (
-    tag         TEXT,
-    channel_key TEXT,
-    turn_id     TEXT,
-    ts          INTEGER,
-    PRIMARY KEY (tag, channel_key, turn_id)
-);
-CREATE INDEX idx_turn_tags_lookup ON turn_tags(tag, channel_key, ts);
-```
-
-`QueryByTags` does an indexed JOIN instead of a LIKE scan — O(k) where k = matching rows, exact match, deduplication built-in.
-
-`Insert()` wraps both `turns` and `turn_tags` writes in a single transaction for consistency.
-
-### Turn ID Format
-
-Channel-aware, time-sortable, compact: `{channel_hash}_{timestamp_base62}_{counter}`
-
-Example: `12tdkW_VCrYNEP_1`
-
----
-
 ## Multi-Agent
 
 ```json
 {
-  "subagents": {
-    "agents": {
-      "coder":    { "model": "deepseek-coder", "skills_filter": ["code"] },
-      "reviewer": { "model": "gpt-4", "skills_filter": ["review"] }
-    },
-    "routing": {
-      "rules": [{ "pattern": "review|check", "agent_id": "reviewer" }]
-    }
+  "agents": {
+    "list": [
+      { "id": "coder", "model": { "primary": "deepseek-coder" }, "skills": ["code"] },
+      { "id": "reviewer", "model": { "primary": "gpt-4" }, "skills": ["review"] }
+    ]
   }
 }
 ```
@@ -319,7 +337,8 @@ Example: `12tdkW_VCrYNEP_1`
 - Message routing: pattern match → specific agent, default → main agent
 - Duplicate message prevention: checks ALL agents' MessageTool before outbound
 - Spawn: main agent can delegate tasks to other agents (async or sync)
-- `SubagentManager.GetTask` / `ListTasks` return **value copies** — no shared pointer leaks
+- `SubagentManager` (`pkg/tools/subagent.go`): `.GetTask` / `.ListTasks` return **value copies** — no shared pointer leaks
+- `AgentRegistry.CanSpawnSubagent()` enforces parent → child permissions
 
 ---
 

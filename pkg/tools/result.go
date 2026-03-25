@@ -34,6 +34,12 @@ type ToolResult struct {
 	// Media contains media store refs produced by this tool.
 	// When non-empty, the agent will publish these as OutboundMediaMessage.
 	Media []string `json:"media,omitempty"`
+
+	// Effect is a one-line human-readable summary of the environment side effect.
+	// Set by tools that mutate external state (write files, run commands, send messages).
+	// Read-only tools (read_file, list_dir, web_search) leave this empty.
+	// Examples: "wrote pkg/agent/loop.go (1234 bytes)", "exec: go build ./..."
+	Effect string `json:"effect,omitempty"`
 }
 
 // NewToolResult creates a basic ToolResult with content for the LLM.

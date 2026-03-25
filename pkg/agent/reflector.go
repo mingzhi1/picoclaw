@@ -54,6 +54,7 @@ type ToolCallRecord struct {
 	Name     string
 	Error    string        // Empty if success
 	Duration time.Duration // How long the tool took
+	Effect   string        // One-line summary of environment side effect (e.g. "wrote foo.go 1234B")
 }
 
 // RuntimeProcessor is a single post-LLM processing step.

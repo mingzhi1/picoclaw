@@ -410,6 +410,9 @@ func (al *AgentLoop) runLLMIteration(
 				if toolResult.Err != nil {
 					record.Error = toolResult.Err.Error()
 				}
+				if toolResult.Effect != "" {
+					record.Effect = toolResult.Effect
+				}
 
 				execResults[idx].result = toolResult
 				execResults[idx].record = record

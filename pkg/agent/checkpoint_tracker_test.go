@@ -1,9 +1,15 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
+
+// contains is a helper function to check if a string contains a substring
+func contains(s, sub string) bool {
+	return strings.Contains(s, sub)
+}
 
 func TestCheckpointTracker_Begin_FormatChecklist(t *testing.T) {
 	ct := NewCheckpointTracker()

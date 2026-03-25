@@ -1,9 +1,27 @@
 package agent
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/sipeed/picoclaw/pkg/llm/providers"
 )
+
+// mockLLMProvider is a mock implementation of providers.LLMProvider for testing
+type mockLLMProvider struct {
+	response string
+}
+
+func (m *mockLLMProvider) Chat(ctx context.Context, messages []providers.Message, tools []providers.ToolDefinition, model string, options map[string]any) (*providers.LLMResponse, error) {
+	return &providers.LLMResponse{
+		Content: m.response,
+	}, nil
+}
+
+func (m *mockLLMProvider) GetDefaultModel() string {
+	return "test-model"
+}
 
 func TestCotUsage_RecordAndQuery(t *testing.T) {
 	dir := t.TempDir()

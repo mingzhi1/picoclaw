@@ -210,7 +210,8 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]any) *ToolResult
 				}
 				// Built-in commands signal errors by prefixing output with "cmdname: "
 				isErr := strings.HasPrefix(output, strings.ToLower(baseCmd)+":")
-				return &ToolResult{ForLLM: output, ForUser: output, IsError: isErr}
+				return &ToolResult{ForLLM: output, ForUser: output, IsError: isErr,
+					Effect: fmt.Sprintf("exec: %s", truncateCmd(command, 80))}
 			}
 		}
 	}
@@ -378,6 +379,7 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]any) *ToolResult
 			ForLLM:  output,
 			ForUser: output,
 			IsError: true,
+			Effect:  fmt.Sprintf("exec(err): %s", truncateCmd(command, 80)),
 		}
 	}
 
@@ -385,6 +387,7 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]any) *ToolResult
 		ForLLM:  output,
 		ForUser: output,
 		IsError: false,
+		Effect:  fmt.Sprintf("exec: %s", truncateCmd(command, 80)),
 	}
 }
 
@@ -541,4 +544,13 @@ func parseSimpleCommand(command string) (baseCmd string, args []string, ok bool)
 	}
 
 	return tokens[0], tokens[1:], true
+}
+
+// truncateCmd truncates a command string for use in Effect summaries.
+func truncateCmd(cmd string, maxLen int) string {
+	cmd = strings.TrimSpace(cmd)
+	if len(cmd) <= maxLen {
+		return cmd
+	}
+	return cmd[:maxLen] + "..."
 }
