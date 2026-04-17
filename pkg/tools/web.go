@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
+	"github.com/mingzhi1/metaclaw/pkg/infra/httpclient"
 )
 
 const (

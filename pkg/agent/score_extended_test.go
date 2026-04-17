@@ -12,10 +12,10 @@ import (
 // TestCalcTurnScore_EmptyInput tests scoring with empty input
 func TestCalcTurnScore_EmptyInput(t *testing.T) {
 	input := RuntimeInput{
-		UserMessage:      "",
-		AssistantReply:   "",
-		ToolCalls:        []ToolCallRecord{},
-		Intent:           "",
+		UserMessage:       "",
+		AssistantReply:    "",
+		ToolCalls:         []ToolCallRecord{},
+		Intent:            "",
 		CheckpointSummary: "",
 	}
 
@@ -29,10 +29,10 @@ func TestCalcTurnScore_EmptyInput(t *testing.T) {
 // TestCalcTurnScore_ChatOnly tests scoring for simple chat
 func TestCalcTurnScore_ChatOnly(t *testing.T) {
 	input := RuntimeInput{
-		UserMessage:      "hello",
-		AssistantReply:   "hi there!",
-		ToolCalls:        []ToolCallRecord{},
-		Intent:           "chat",
+		UserMessage:       "hello",
+		AssistantReply:    "hi there!",
+		ToolCalls:         []ToolCallRecord{},
+		Intent:            "chat",
 		CheckpointSummary: "",
 	}
 
@@ -46,10 +46,10 @@ func TestCalcTurnScore_ChatOnly(t *testing.T) {
 // TestCalcTurnScore_TaskWithTools tests scoring for task with tool calls
 func TestCalcTurnScore_TaskWithTools(t *testing.T) {
 	input := RuntimeInput{
-		UserMessage:      "deploy to staging",
-		AssistantReply:   "deployed successfully",
-		ToolCalls:        []ToolCallRecord{{Name: "exec", Error: ""}},
-		Intent:           "task",
+		UserMessage:       "deploy to staging",
+		AssistantReply:    "deployed successfully",
+		ToolCalls:         []ToolCallRecord{{Name: "exec", Error: ""}},
+		Intent:            "task",
 		CheckpointSummary: "",
 	}
 
@@ -63,10 +63,10 @@ func TestCalcTurnScore_TaskWithTools(t *testing.T) {
 // TestCalcTurnScore_WriteTool tests scoring with write tool
 func TestCalcTurnScore_WriteTool(t *testing.T) {
 	input := RuntimeInput{
-		UserMessage:      "create a file",
-		AssistantReply:   "created",
-		ToolCalls:        []ToolCallRecord{{Name: "write_file", Error: ""}},
-		Intent:           "code",
+		UserMessage:       "create a file",
+		AssistantReply:    "created",
+		ToolCalls:         []ToolCallRecord{{Name: "write_file", Error: ""}},
+		Intent:            "code",
 		CheckpointSummary: "",
 	}
 
@@ -80,8 +80,8 @@ func TestCalcTurnScore_WriteTool(t *testing.T) {
 // TestCalcTurnScore_ManyTools tests scoring with many tool calls
 func TestCalcTurnScore_ManyTools(t *testing.T) {
 	input := RuntimeInput{
-		UserMessage:      "complex task",
-		AssistantReply:   strings.Repeat("done ", 100),
+		UserMessage:    "complex task",
+		AssistantReply: strings.Repeat("done ", 100),
 		ToolCalls: []ToolCallRecord{
 			{Name: "read_file"},
 			{Name: "write_file"},
@@ -89,7 +89,7 @@ func TestCalcTurnScore_ManyTools(t *testing.T) {
 			{Name: "web_search"},
 			{Name: "grep_search"},
 		},
-		Intent:           "task",
+		Intent:            "task",
 		CheckpointSummary: "",
 	}
 
@@ -103,10 +103,10 @@ func TestCalcTurnScore_ManyTools(t *testing.T) {
 // TestCalcTurnScore_LongReply tests scoring with long reply
 func TestCalcTurnScore_LongReply(t *testing.T) {
 	input := RuntimeInput{
-		UserMessage:      "explain",
-		AssistantReply:   strings.Repeat("explanation ", 100), // > 500 chars
-		ToolCalls:        []ToolCallRecord{},
-		Intent:           "question",
+		UserMessage:       "explain",
+		AssistantReply:    strings.Repeat("explanation ", 100), // > 500 chars
+		ToolCalls:         []ToolCallRecord{},
+		Intent:            "question",
 		CheckpointSummary: "",
 	}
 
@@ -120,10 +120,10 @@ func TestCalcTurnScore_LongReply(t *testing.T) {
 // TestCalcTurnScore_RememberKeyword tests scoring with remember keyword
 func TestCalcTurnScore_RememberKeyword(t *testing.T) {
 	input := RuntimeInput{
-		UserMessage:      "请记住这个配置",
-		AssistantReply:   "好的，已记住",
-		ToolCalls:        []ToolCallRecord{},
-		Intent:           "chat",
+		UserMessage:       "请记住这个配置",
+		AssistantReply:    "好的，已记住",
+		ToolCalls:         []ToolCallRecord{},
+		Intent:            "chat",
 		CheckpointSummary: "",
 	}
 
@@ -137,10 +137,10 @@ func TestCalcTurnScore_RememberKeyword(t *testing.T) {
 // TestCalcTurnScore_ImportantKeyword tests scoring with important keyword
 func TestCalcTurnScore_ImportantKeyword(t *testing.T) {
 	input := RuntimeInput{
-		UserMessage:      "这是重要的信息",
-		AssistantReply:   "明白了",
-		ToolCalls:        []ToolCallRecord{},
-		Intent:           "chat",
+		UserMessage:       "这是重要的信息",
+		AssistantReply:    "明白了",
+		ToolCalls:         []ToolCallRecord{},
+		Intent:            "chat",
 		CheckpointSummary: "",
 	}
 
@@ -154,10 +154,10 @@ func TestCalcTurnScore_ImportantKeyword(t *testing.T) {
 // TestCalcTurnScore_EnglishRemember tests scoring with English remember keyword
 func TestCalcTurnScore_EnglishRemember(t *testing.T) {
 	input := RuntimeInput{
-		UserMessage:      "Please remember this",
-		AssistantReply:   "Got it",
-		ToolCalls:        []ToolCallRecord{},
-		Intent:           "chat",
+		UserMessage:       "Please remember this",
+		AssistantReply:    "Got it",
+		ToolCalls:         []ToolCallRecord{},
+		Intent:            "chat",
 		CheckpointSummary: "",
 	}
 
@@ -170,10 +170,10 @@ func TestCalcTurnScore_EnglishRemember(t *testing.T) {
 // TestCalcTurnScore_CheckpointActivity tests scoring with checkpoint summary
 func TestCalcTurnScore_CheckpointActivity(t *testing.T) {
 	input := RuntimeInput{
-		UserMessage:      "complete the task",
-		AssistantReply:   "done",
-		ToolCalls:        []ToolCallRecord{},
-		Intent:           "task",
+		UserMessage:       "complete the task",
+		AssistantReply:    "done",
+		ToolCalls:         []ToolCallRecord{},
+		Intent:            "task",
 		CheckpointSummary: "3/3 passed",
 	}
 
@@ -187,10 +187,10 @@ func TestCalcTurnScore_CheckpointActivity(t *testing.T) {
 // TestCalcTurnScore_CheckpointFailed tests scoring with failed checkpoints
 func TestCalcTurnScore_CheckpointFailed(t *testing.T) {
 	input := RuntimeInput{
-		UserMessage:      "try the task",
-		AssistantReply:   "failed at step 2",
-		ToolCalls:        []ToolCallRecord{},
-		Intent:           "task",
+		UserMessage:       "try the task",
+		AssistantReply:    "failed at step 2",
+		ToolCalls:         []ToolCallRecord{},
+		Intent:            "task",
 		CheckpointSummary: "1/3 passed, 1 failed",
 	}
 
@@ -204,10 +204,10 @@ func TestCalcTurnScore_CheckpointFailed(t *testing.T) {
 // TestCalcTurnScore_DebugIntent tests scoring with debug intent
 func TestCalcTurnScore_DebugIntent(t *testing.T) {
 	input := RuntimeInput{
-		UserMessage:      "fix the bug",
-		AssistantReply:   "fixed",
-		ToolCalls:        []ToolCallRecord{},
-		Intent:           "debug",
+		UserMessage:       "fix the bug",
+		AssistantReply:    "fixed",
+		ToolCalls:         []ToolCallRecord{},
+		Intent:            "debug",
 		CheckpointSummary: "",
 	}
 
@@ -221,10 +221,10 @@ func TestCalcTurnScore_DebugIntent(t *testing.T) {
 // TestCalcTurnScore_CodeIntent tests scoring with code intent
 func TestCalcTurnScore_CodeIntent(t *testing.T) {
 	input := RuntimeInput{
-		UserMessage:      "write code",
-		AssistantReply:   "here is the code",
-		ToolCalls:        []ToolCallRecord{},
-		Intent:           "code",
+		UserMessage:       "write code",
+		AssistantReply:    "here is the code",
+		ToolCalls:         []ToolCallRecord{},
+		Intent:            "code",
 		CheckpointSummary: "",
 	}
 
@@ -238,10 +238,10 @@ func TestCalcTurnScore_CodeIntent(t *testing.T) {
 // TestCalcTurnScore_QuestionIntent tests scoring with question intent
 func TestCalcTurnScore_QuestionIntent(t *testing.T) {
 	input := RuntimeInput{
-		UserMessage:      "what is Go?",
-		AssistantReply:   "Go is a programming language",
-		ToolCalls:        []ToolCallRecord{},
-		Intent:           "question",
+		UserMessage:       "what is Go?",
+		AssistantReply:    "Go is a programming language",
+		ToolCalls:         []ToolCallRecord{},
+		Intent:            "question",
 		CheckpointSummary: "",
 	}
 
@@ -256,15 +256,15 @@ func TestCalcTurnScore_QuestionIntent(t *testing.T) {
 func TestCalcTurnScore_AlwaysKeepThreshold(t *testing.T) {
 	// This turn should reach always_keep threshold (>= 7)
 	input := RuntimeInput{
-		UserMessage:      "deploy to production",
-		AssistantReply:   strings.Repeat("done ", 100),
+		UserMessage:    "deploy to production",
+		AssistantReply: strings.Repeat("done ", 100),
 		ToolCalls: []ToolCallRecord{
 			{Name: "write_file"},
 			{Name: "exec"},
 			{Name: "exec"},
 			{Name: "exec"},
 		},
-		Intent:           "task",
+		Intent:            "task",
 		CheckpointSummary: "all passed",
 	}
 
@@ -291,10 +291,10 @@ func TestCalcTurnScore_CaseInsensitiveKeywords(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input := RuntimeInput{
-				UserMessage:      tt.message,
-				AssistantReply:   "ok",
-				ToolCalls:        []ToolCallRecord{},
-				Intent:           "chat",
+				UserMessage:       tt.message,
+				AssistantReply:    "ok",
+				ToolCalls:         []ToolCallRecord{},
+				Intent:            "chat",
 				CheckpointSummary: "",
 			}
 			score := CalcTurnScore(input)
@@ -370,8 +370,8 @@ func TestContextBuilder_GetIdentity(t *testing.T) {
 	if identity == "" {
 		t.Error("getIdentity returned empty string")
 	}
-	if !strings.Contains(identity, "picoclaw") {
-		t.Error("identity should contain 'picoclaw'")
+	if !strings.Contains(strings.ToLower(identity), "metaclaw") {
+		t.Error("identity should contain 'metaclaw'")
 	}
 	if !strings.Contains(identity, dir) {
 		t.Error("identity should contain workspace path")
@@ -492,10 +492,10 @@ func TestCalcTurnScore_WithCheckpoints_Integration(t *testing.T) {
 // TestCalcTurnScore_VeryLongMessage tests with very long messages
 func TestCalcTurnScore_VeryLongMessage(t *testing.T) {
 	input := RuntimeInput{
-		UserMessage:      strings.Repeat("a", 10000),
-		AssistantReply:   strings.Repeat("b", 10000),
-		ToolCalls:        []ToolCallRecord{},
-		Intent:           "chat",
+		UserMessage:       strings.Repeat("a", 10000),
+		AssistantReply:    strings.Repeat("b", 10000),
+		ToolCalls:         []ToolCallRecord{},
+		Intent:            "chat",
 		CheckpointSummary: "",
 	}
 
@@ -509,10 +509,10 @@ func TestCalcTurnScore_VeryLongMessage(t *testing.T) {
 // TestCalcTurnScore_UnicodeContent tests with Unicode content
 func TestCalcTurnScore_UnicodeContent(t *testing.T) {
 	input := RuntimeInput{
-		UserMessage:      "请记住：你好世界🌍",
-		AssistantReply:   "好的，已记住：你好世界🌍",
-		ToolCalls:        []ToolCallRecord{},
-		Intent:           "chat",
+		UserMessage:       "请记住：你好世界🌍",
+		AssistantReply:    "好的，已记住：你好世界🌍",
+		ToolCalls:         []ToolCallRecord{},
+		Intent:            "chat",
 		CheckpointSummary: "",
 	}
 
@@ -526,10 +526,10 @@ func TestCalcTurnScore_UnicodeContent(t *testing.T) {
 // TestCalcTurnScore_MultipleKeywords tests with multiple score-boosting keywords
 func TestCalcTurnScore_MultipleKeywords(t *testing.T) {
 	input := RuntimeInput{
-		UserMessage:      "请记住这个重要的配置，非常重要！",
-		AssistantReply:   "好的",
-		ToolCalls:        []ToolCallRecord{},
-		Intent:           "chat",
+		UserMessage:       "请记住这个重要的配置，非常重要！",
+		AssistantReply:    "好的",
+		ToolCalls:         []ToolCallRecord{},
+		Intent:            "chat",
 		CheckpointSummary: "",
 	}
 
@@ -544,8 +544,8 @@ func TestCalcTurnScore_MultipleKeywords(t *testing.T) {
 // TestCalcTurnScore_AllRulesCombined tests combining all scoring rules
 func TestCalcTurnScore_AllRulesCombined(t *testing.T) {
 	input := RuntimeInput{
-		UserMessage:      "请记住这个重要的部署任务",
-		AssistantReply:   strings.Repeat("部署成功 ", 100),
+		UserMessage:    "请记住这个重要的部署任务",
+		AssistantReply: strings.Repeat("部署成功 ", 100),
 		ToolCalls: []ToolCallRecord{
 			{Name: "write_file"},
 			{Name: "exec"},

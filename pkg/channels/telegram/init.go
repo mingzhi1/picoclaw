@@ -1,9 +1,9 @@
 package telegram
 
 import (
-	"github.com/sipeed/picoclaw/pkg/core/bus"
-	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/infra/config"
+	"github.com/mingzhi1/metaclaw/pkg/core/bus"
+	"github.com/mingzhi1/metaclaw/pkg/channels"
+	"github.com/mingzhi1/metaclaw/pkg/infra/config"
 )
 
 func init() {

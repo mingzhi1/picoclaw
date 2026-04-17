@@ -674,7 +674,7 @@ Add a default entry in `pkg/config/defaults.go`:
 
 #### 5. Add Auth Support (Optional)
 
-If your provider requires OAuth or special authentication, add a case to `cmd/picoclaw/cmd_auth.go`:
+If your provider requires OAuth or special authentication, add a case to `cmd/metaclaw/cmd_auth.go`:
 
 ```go
 case "your-provider":
@@ -736,7 +736,7 @@ export PICOCLAW_MODEL_LIST='[{"model_name":"your-model","model":"your-provider/m
   - `pkg/auth/store.go` - Auth credential storage (`~/.picoclaw/auth.json`)
   - `pkg/providers/factory.go` - Provider factory and protocol routing
   - `pkg/providers/types.go` - Provider interface definitions
-  - `cmd/picoclaw/cmd_auth.go` - Auth CLI commands
+  - `cmd/metaclaw/cmd_auth.go` - Auth CLI commands
 
 - **Documentation:**
   - `docs/ANTIGRAVITY_USAGE.md` - Antigravity usage guide

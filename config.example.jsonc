@@ -1,12 +1,13 @@
-// PicoClaw Configuration Example
-// Copy this file to ~/.picoclaw/config.json and fill in your API key.
+// MetaClaw Configuration Example
+// Copy this file to ~/.metaclaw/config.json and fill in your API key.
+// Legacy ~/.picoclaw/config.json is still supported for compatibility.
 // Only include the sections you need — everything else uses smart defaults.
 //
 // Minimal config (just 3 lines needed):
 //   { "model_list": [{ "model_name": "main", "model": "deepseek/deepseek-chat", "api_key": "sk-xxx" }] }
 //
 // Short environment variables (for Docker / CI):
-//   PC_MODEL=deepseek-chat  PC_API_KEY=sk-xxx  PC_TG_TOKEN=123:ABC  picoclaw gateway
+//   PC_MODEL=deepseek-chat  PC_API_KEY=sk-xxx  PC_TG_TOKEN=123:ABC  metaclaw gateway
 {
     // ── Agent defaults ──────────────────────────────────────────────
     "agents": {

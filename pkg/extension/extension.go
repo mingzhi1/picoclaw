@@ -24,8 +24,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/sipeed/picoclaw/pkg/infra/logger"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/mingzhi1/metaclaw/pkg/infra/logger"
+	"github.com/mingzhi1/metaclaw/pkg/tools"
 )
 
 // Extension is the interface that every optional module must implement.

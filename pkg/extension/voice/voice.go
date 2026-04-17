@@ -17,8 +17,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sipeed/picoclaw/pkg/extension"
-	"github.com/sipeed/picoclaw/pkg/infra/logger"
+	"github.com/mingzhi1/metaclaw/pkg/extension"
+	"github.com/mingzhi1/metaclaw/pkg/infra/logger"
 )
 
 // Ext implements extension.Extension for speech-to-text transcription.

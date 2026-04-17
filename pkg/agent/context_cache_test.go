@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/llm/providers"
+	"github.com/mingzhi1/metaclaw/pkg/llm/providers"
 )
 
 // setupWorkspace creates a temporary workspace with standard directories and optional files.
@@ -101,7 +101,7 @@ func TestSingleSystemMessage(t *testing.T) {
 
 			// System message must contain identity (static) and time (dynamic)
 			sys := msgs[0].Content
-			if !strings.Contains(sys, "picoclaw") {
+			if !strings.Contains(strings.ToLower(sys), "metaclaw") {
 				t.Error("system message missing identity")
 			}
 			if !strings.Contains(sys, "Current Time") {
@@ -420,7 +420,7 @@ func TestConcurrentBuildSystemPromptWithCache(t *testing.T) {
 					errs <- "empty prompt returned"
 					return
 				}
-				if !strings.Contains(result, "picoclaw") {
+				if !strings.Contains(strings.ToLower(result), "metaclaw") {
 					errs <- "prompt missing identity"
 					return
 				}

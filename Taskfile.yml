@@ -4,8 +4,8 @@ version: "3"
 vars:
   BINARY_NAME: metaclaw
   BUILD_DIR: build
-  CMD_DIR: cmd/picoclaw
-  INTERNAL: github.com/sipeed/picoclaw/cmd/picoclaw/internal
+  CMD_DIR: cmd/metaclaw
+  INTERNAL: github.com/mingzhi1/metaclaw/cmd/metaclaw/internal
 
   # Git / version info  (powershell-safe)
   VERSION:

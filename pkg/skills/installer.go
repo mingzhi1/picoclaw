@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
-	"github.com/sipeed/picoclaw/pkg/infra/utils"
+	"github.com/mingzhi1/metaclaw/pkg/infra/httpclient"
+	"github.com/mingzhi1/metaclaw/pkg/infra/utils"
 )
 
 type SkillInstaller struct {

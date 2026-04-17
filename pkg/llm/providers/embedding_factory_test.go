@@ -3,8 +3,8 @@ package providers
 import (
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/infra/config"
-	"github.com/sipeed/picoclaw/pkg/llm/providers/openai_compat"
+	"github.com/mingzhi1/metaclaw/pkg/infra/config"
+	"github.com/mingzhi1/metaclaw/pkg/llm/providers/openai_compat"
 )
 
 func TestCreateEmbeddingProviderFromConfig_OpenAICompatible(t *testing.T) {

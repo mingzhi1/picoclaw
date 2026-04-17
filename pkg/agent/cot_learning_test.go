@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/llm/providers"
+	"github.com/mingzhi1/metaclaw/pkg/llm/providers"
 )
 
 // mockLLMProvider is a mock implementation of providers.LLMProvider for testing

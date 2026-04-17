@@ -80,12 +80,12 @@ jobs:
           VERSION="${{ inputs.tag }}"
           COMMIT=$(git rev-parse --short=8 HEAD)
           GOVERSION=$(go env GOVERSION)
-          PKG="github.com/sipeed/picoclaw/cmd/picoclaw/internal"
+          PKG="github.com/mingzhi1/metaclaw/cmd/metaclaw/internal"
 
           go build -tags stdjson \
             -ldflags "-X ${PKG}.version=${VERSION} -X ${PKG}.gitCommit=${COMMIT} -X ${PKG}.goVersion=${GOVERSION} -s -w" \
             -o metaclaw-${GOOS}-${GOARCH}${EXT} \
-            ./cmd/picoclaw
+            ./cmd/metaclaw
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

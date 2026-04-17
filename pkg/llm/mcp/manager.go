@@ -14,9 +14,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/sipeed/picoclaw/pkg/infra/config"
-	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
-	"github.com/sipeed/picoclaw/pkg/infra/logger"
+	"github.com/mingzhi1/metaclaw/pkg/infra/config"
+	"github.com/mingzhi1/metaclaw/pkg/infra/httpclient"
+	"github.com/mingzhi1/metaclaw/pkg/infra/logger"
 )
 
 // headerTransport is an http.RoundTripper that adds custom headers to requests

@@ -6,7 +6,7 @@ package identity
 import (
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/core/bus"
+	"github.com/mingzhi1/metaclaw/pkg/core/bus"
 )
 
 // BuildCanonicalID constructs a canonical "platform:id" identifier.

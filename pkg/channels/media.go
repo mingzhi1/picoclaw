@@ -3,7 +3,7 @@ package channels
 import (
 	"context"
 
-	"github.com/sipeed/picoclaw/pkg/core/bus"
+	"github.com/mingzhi1/metaclaw/pkg/core/bus"
 )
 
 // MediaSender is an optional interface for channels that can send

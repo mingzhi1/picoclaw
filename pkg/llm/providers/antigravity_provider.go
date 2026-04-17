@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
-	"github.com/sipeed/picoclaw/pkg/llm/auth"
-	"github.com/sipeed/picoclaw/pkg/infra/logger"
+	"github.com/mingzhi1/metaclaw/pkg/infra/httpclient"
+	"github.com/mingzhi1/metaclaw/pkg/llm/auth"
+	"github.com/mingzhi1/metaclaw/pkg/infra/logger"
 )
 
 const (

@@ -1,6 +1,6 @@
 # PicoClaw Channel System: Complete Development Guide
 
-> **Scope**: `pkg/channels/`, `pkg/bus/`, `pkg/media/`, `pkg/identity/`, `cmd/picoclaw/internal/gateway/`
+> **Scope**: `pkg/channels/`, `pkg/bus/`, `pkg/media/`, `pkg/identity/`, `cmd/metaclaw/internal/gateway/`
 
 ---
 
@@ -159,19 +159,19 @@ Using Telegram as an example, the main changes are:
 package channels
 
 import (
-    "github.com/sipeed/picoclaw/pkg/bus"
-    "github.com/sipeed/picoclaw/pkg/config"
+    "github.com/mingzhi1/metaclaw/pkg/bus"
+    "github.com/mingzhi1/metaclaw/pkg/config"
 )
 
 // New code (refactored branch)
 package telegram
 
 import (
-    "github.com/sipeed/picoclaw/pkg/bus"
-    "github.com/sipeed/picoclaw/pkg/channels"     // Reference parent package
-    "github.com/sipeed/picoclaw/pkg/config"
-    "github.com/sipeed/picoclaw/pkg/identity"      // New
-    "github.com/sipeed/picoclaw/pkg/media"          // New (if media support needed)
+    "github.com/mingzhi1/metaclaw/pkg/bus"
+    "github.com/mingzhi1/metaclaw/pkg/channels"     // Reference parent package
+    "github.com/mingzhi1/metaclaw/pkg/config"
+    "github.com/mingzhi1/metaclaw/pkg/identity"      // New
+    "github.com/mingzhi1/metaclaw/pkg/media"          // New (if media support needed)
 )
 ```
 
@@ -318,9 +318,9 @@ Create `init.go` for your channel:
 package telegram
 
 import (
-    "github.com/sipeed/picoclaw/pkg/bus"
-    "github.com/sipeed/picoclaw/pkg/channels"
-    "github.com/sipeed/picoclaw/pkg/config"
+    "github.com/mingzhi1/metaclaw/pkg/bus"
+    "github.com/mingzhi1/metaclaw/pkg/channels"
+    "github.com/mingzhi1/metaclaw/pkg/config"
 )
 
 func init() {
@@ -333,10 +333,10 @@ func init() {
 **3h. Import sub-package in Gateway**
 
 ```go
-// cmd/picoclaw/internal/gateway/helpers.go
+// cmd/metaclaw/internal/gateway/helpers.go
 import (
-    _ "github.com/sipeed/picoclaw/pkg/channels/telegram"   // Triggers init() registration
-    _ "github.com/sipeed/picoclaw/pkg/channels/feishu"
+    _ "github.com/mingzhi1/metaclaw/pkg/channels/telegram"   // Triggers init() registration
+    _ "github.com/mingzhi1/metaclaw/pkg/channels/feishu"
 )
 ```
 
@@ -417,9 +417,9 @@ To add a new chat platform (e.g., `matrix`), you need to:
 package matrix
 
 import (
-    "github.com/sipeed/picoclaw/pkg/bus"
-    "github.com/sipeed/picoclaw/pkg/channels"
-    "github.com/sipeed/picoclaw/pkg/config"
+    "github.com/mingzhi1/metaclaw/pkg/bus"
+    "github.com/mingzhi1/metaclaw/pkg/channels"
+    "github.com/mingzhi1/metaclaw/pkg/config"
 )
 
 func init() {
@@ -438,11 +438,11 @@ import (
     "context"
     "fmt"
 
-    "github.com/sipeed/picoclaw/pkg/bus"
-    "github.com/sipeed/picoclaw/pkg/channels"
-    "github.com/sipeed/picoclaw/pkg/config"
-    "github.com/sipeed/picoclaw/pkg/identity"
-    "github.com/sipeed/picoclaw/pkg/logger"
+    "github.com/mingzhi1/metaclaw/pkg/bus"
+    "github.com/mingzhi1/metaclaw/pkg/channels"
+    "github.com/mingzhi1/metaclaw/pkg/config"
+    "github.com/mingzhi1/metaclaw/pkg/identity"
+    "github.com/mingzhi1/metaclaw/pkg/logger"
 )
 
 // MatrixChannel implements channels.Channel for the Matrix protocol.
@@ -806,9 +806,9 @@ if m.config.Channels.Matrix.Enabled && m.config.Channels.Matrix.Token != "" {
 #### Add blank import in Gateway
 
 ```go
-// cmd/picoclaw/internal/gateway/helpers.go
+// cmd/metaclaw/internal/gateway/helpers.go
 import (
-    _ "github.com/sipeed/picoclaw/pkg/channels/matrix"
+    _ "github.com/mingzhi1/metaclaw/pkg/channels/matrix"
 )
 ```
 

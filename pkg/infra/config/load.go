@@ -4,15 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/tidwall/jsonc"
 
-	"github.com/sipeed/picoclaw/pkg/infra/utils"
+	"github.com/mingzhi1/metaclaw/pkg/infra/utils"
 )
 
 // LoadConfig reads and parses a config file (supports JSONC comments).
 func LoadConfig(path string) (*Config, error) {
+	resolveCompatEnvVars()
 	resolveShortEnvVars()
 
 	cfg := DefaultConfig()
@@ -102,7 +104,21 @@ func expandHome(path string) string {
 
 // --- Short environment variable aliases ---
 // Makes Docker/CI deployment much simpler:
-//   PC_MODEL=deepseek-chat PC_API_KEY=sk-xxx picoclaw gateway
+//   PC_MODEL=deepseek-chat PC_API_KEY=sk-xxx metaclaw gateway
+
+func resolveCompatEnvVars() {
+	for _, entry := range os.Environ() {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok || !strings.HasPrefix(key, "METACLAW_") {
+			continue
+		}
+
+		legacyKey := "PICOCLAW_" + strings.TrimPrefix(key, "METACLAW_")
+		if os.Getenv(legacyKey) == "" {
+			os.Setenv(legacyKey, value)
+		}
+	}
+}
 
 // shortEnvAliases maps short env var names to their full PICOCLAW_ equivalents.
 var shortEnvAliases = map[string]string{
@@ -164,4 +180,3 @@ func warnDeprecatedFields(cfg *Config) {
 		fmt.Fprintf(os.Stderr, "[WARN] config: 'providers' section is deprecated, use 'model_list' instead\n")
 	}
 }
-

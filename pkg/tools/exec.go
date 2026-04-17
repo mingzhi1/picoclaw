@@ -14,8 +14,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/sipeed/picoclaw/pkg/infra/config"
-	"github.com/sipeed/picoclaw/pkg/infra/logger"
+	"github.com/mingzhi1/metaclaw/pkg/infra/config"
+	"github.com/mingzhi1/metaclaw/pkg/infra/logger"
 	"golang.org/x/text/encoding/simplifiedchinese"
 )
 

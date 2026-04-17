@@ -3,8 +3,8 @@ package providers
 import (
 	"fmt"
 
-	"github.com/sipeed/picoclaw/pkg/infra/config"
-	"github.com/sipeed/picoclaw/pkg/llm/providers/openai_compat"
+	"github.com/mingzhi1/metaclaw/pkg/infra/config"
+	"github.com/mingzhi1/metaclaw/pkg/llm/providers/openai_compat"
 )
 
 // CreateEmbeddingProviderFromConfig creates an embedding provider from model_list config.

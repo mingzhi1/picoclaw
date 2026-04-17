@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/infra/logger"
-	"github.com/sipeed/picoclaw/pkg/llm/providers"
+	"github.com/mingzhi1/metaclaw/pkg/infra/logger"
+	"github.com/mingzhi1/metaclaw/pkg/llm/providers"
 )
 
 // ---------------------------------------------------------------------------

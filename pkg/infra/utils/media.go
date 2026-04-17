@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
-	"github.com/sipeed/picoclaw/pkg/infra/logger"
+	"github.com/mingzhi1/metaclaw/pkg/infra/httpclient"
+	"github.com/mingzhi1/metaclaw/pkg/infra/logger"
 )
 
 // SanitizeFilename removes potentially dangerous characters from a filename

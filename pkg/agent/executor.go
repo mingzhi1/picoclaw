@@ -19,12 +19,12 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/sipeed/picoclaw/pkg/core/bus"
-	"github.com/sipeed/picoclaw/pkg/core"
-	"github.com/sipeed/picoclaw/pkg/infra/logger"
-	"github.com/sipeed/picoclaw/pkg/llm/providers"
-	"github.com/sipeed/picoclaw/pkg/tools"
-	"github.com/sipeed/picoclaw/pkg/infra/utils"
+	"github.com/mingzhi1/metaclaw/pkg/core/bus"
+	"github.com/mingzhi1/metaclaw/pkg/core"
+	"github.com/mingzhi1/metaclaw/pkg/infra/logger"
+	"github.com/mingzhi1/metaclaw/pkg/llm/providers"
+	"github.com/mingzhi1/metaclaw/pkg/tools"
+	"github.com/mingzhi1/metaclaw/pkg/infra/utils"
 )
 
 func (al *AgentLoop) targetReasoningChannelID(channelName string) (chatID string) {

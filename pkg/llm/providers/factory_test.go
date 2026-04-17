@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/llm/auth"
-	"github.com/sipeed/picoclaw/pkg/infra/config"
+	"github.com/mingzhi1/metaclaw/pkg/llm/auth"
+	"github.com/mingzhi1/metaclaw/pkg/infra/config"
 )
 
 func TestResolveProviderSelection(t *testing.T) {

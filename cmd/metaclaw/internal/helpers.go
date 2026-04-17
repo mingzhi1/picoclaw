@@ -1,0 +1,101 @@
+package internal
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+
+	"github.com/mingzhi1/metaclaw/pkg/core"
+	"github.com/mingzhi1/metaclaw/pkg/infra/config"
+)
+
+// Logo re-exports core.Logo for backward compatibility with cmd/ callers.
+const Logo = core.Logo
+
+var (
+	version   = "dev"
+	gitCommit string
+	buildTime string
+	goVersion string
+)
+
+func GetConfigPath() string {
+	if configPath := os.Getenv("METACLAW_CONFIG"); configPath != "" {
+		return configPath
+	}
+	if configPath := os.Getenv("PICOCLAW_CONFIG"); configPath != "" {
+		return configPath
+	}
+	home, _ := os.UserHomeDir()
+	metaPath := filepath.Join(home, ".metaclaw", "config.json")
+	legacyPath := filepath.Join(home, ".picoclaw", "config.json")
+	if _, err := os.Stat(metaPath); err == nil {
+		return metaPath
+	}
+	if _, err := os.Stat(legacyPath); err == nil {
+		return legacyPath
+	}
+	return metaPath
+}
+
+func LoadConfig() (*config.Config, error) {
+	return config.LoadConfig(GetConfigPath())
+}
+
+// FormatVersion returns the version string with optional git commit
+func FormatVersion() string {
+	v := version
+	if gitCommit != "" {
+		v += fmt.Sprintf(" (git: %s)", gitCommit)
+	}
+	return v
+}
+
+// FormatBuildInfo returns build time and go version info
+func FormatBuildInfo() (string, string) {
+	build := buildTime
+	goVer := goVersion
+	if goVer == "" {
+		goVer = runtime.Version()
+	}
+	return build, goVer
+}
+
+// GetVersion returns the version string
+func GetVersion() string {
+	return version
+}
+
+// WarnMissingBootstrap checks workspace bootstrap files (SOUL.md, IDENTITY.md, USER.md)
+// and warns the user if any are missing or unmodified.
+func WarnMissingBootstrap(workspace string) {
+	files := []struct {
+		name string
+		desc string
+	}{
+		{"SOUL.md", "personality & behavior"},
+		{"IDENTITY.md", "agent name & description"},
+		{"USER.md", "your preferences & info"},
+	}
+
+	var missing []string
+	for _, f := range files {
+		path := filepath.Join(workspace, f.name)
+		info, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			missing = append(missing, fmt.Sprintf("    %s  — %s", f.name, f.desc))
+		} else if err == nil && info.Size() < 50 {
+			// File exists but appears to be empty/placeholder
+			missing = append(missing, fmt.Sprintf("    %s  — %s (empty)", f.name, f.desc))
+		}
+	}
+
+	if len(missing) > 0 {
+		fmt.Println("  Customize your agent:")
+		for _, m := range missing {
+			fmt.Println(m)
+		}
+		fmt.Printf("  Edit files in: %s\n\n", workspace)
+	}
+}

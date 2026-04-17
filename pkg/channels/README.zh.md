@@ -1,6 +1,6 @@
 # PicoClaw Channel System：完整开发指南
 
-> **影响范围**: `pkg/channels/`, `pkg/bus/`, `pkg/media/`, `pkg/identity/`, `cmd/picoclaw/internal/gateway/`
+> **影响范围**: `pkg/channels/`, `pkg/bus/`, `pkg/media/`, `pkg/identity/`, `cmd/metaclaw/internal/gateway/`
 
 ---
 
@@ -159,19 +159,19 @@ pkg/identity/
 package channels
 
 import (
-    "github.com/sipeed/picoclaw/pkg/bus"
-    "github.com/sipeed/picoclaw/pkg/config"
+    "github.com/mingzhi1/metaclaw/pkg/bus"
+    "github.com/mingzhi1/metaclaw/pkg/config"
 )
 
 // 新代码（重构分支）
 package telegram
 
 import (
-    "github.com/sipeed/picoclaw/pkg/bus"
-    "github.com/sipeed/picoclaw/pkg/channels"     // 引用父包
-    "github.com/sipeed/picoclaw/pkg/config"
-    "github.com/sipeed/picoclaw/pkg/identity"      // 新增
-    "github.com/sipeed/picoclaw/pkg/media"          // 新增（如需媒体）
+    "github.com/mingzhi1/metaclaw/pkg/bus"
+    "github.com/mingzhi1/metaclaw/pkg/channels"     // 引用父包
+    "github.com/mingzhi1/metaclaw/pkg/config"
+    "github.com/mingzhi1/metaclaw/pkg/identity"      // 新增
+    "github.com/mingzhi1/metaclaw/pkg/media"          // 新增（如需媒体）
 )
 ```
 
@@ -318,9 +318,9 @@ c.HandleMessage(ctx, peer, messageID, senderID, chatID, content, mediaRefs, meta
 package telegram
 
 import (
-    "github.com/sipeed/picoclaw/pkg/bus"
-    "github.com/sipeed/picoclaw/pkg/channels"
-    "github.com/sipeed/picoclaw/pkg/config"
+    "github.com/mingzhi1/metaclaw/pkg/bus"
+    "github.com/mingzhi1/metaclaw/pkg/channels"
+    "github.com/mingzhi1/metaclaw/pkg/config"
 )
 
 func init() {
@@ -333,10 +333,10 @@ func init() {
 **3h. 在 Gateway 中导入子包**
 
 ```go
-// cmd/picoclaw/internal/gateway/helpers.go
+// cmd/metaclaw/internal/gateway/helpers.go
 import (
-    _ "github.com/sipeed/picoclaw/pkg/channels/telegram"   // 触发 init() 注册
-    _ "github.com/sipeed/picoclaw/pkg/channels/feishu"
+    _ "github.com/mingzhi1/metaclaw/pkg/channels/telegram"   // 触发 init() 注册
+    _ "github.com/mingzhi1/metaclaw/pkg/channels/feishu"
 )
 ```
 
@@ -417,9 +417,9 @@ Agent Loop 的主要变化：
 package matrix
 
 import (
-    "github.com/sipeed/picoclaw/pkg/bus"
-    "github.com/sipeed/picoclaw/pkg/channels"
-    "github.com/sipeed/picoclaw/pkg/config"
+    "github.com/mingzhi1/metaclaw/pkg/bus"
+    "github.com/mingzhi1/metaclaw/pkg/channels"
+    "github.com/mingzhi1/metaclaw/pkg/config"
 )
 
 func init() {
@@ -438,11 +438,11 @@ import (
     "context"
     "fmt"
 
-    "github.com/sipeed/picoclaw/pkg/bus"
-    "github.com/sipeed/picoclaw/pkg/channels"
-    "github.com/sipeed/picoclaw/pkg/config"
-    "github.com/sipeed/picoclaw/pkg/identity"
-    "github.com/sipeed/picoclaw/pkg/logger"
+    "github.com/mingzhi1/metaclaw/pkg/bus"
+    "github.com/mingzhi1/metaclaw/pkg/channels"
+    "github.com/mingzhi1/metaclaw/pkg/config"
+    "github.com/mingzhi1/metaclaw/pkg/identity"
+    "github.com/mingzhi1/metaclaw/pkg/logger"
 )
 
 // MatrixChannel implements channels.Channel for the Matrix protocol.
@@ -805,9 +805,9 @@ if m.config.Channels.Matrix.Enabled && m.config.Channels.Matrix.Token != "" {
 #### 在 Gateway 中添加 blank import
 
 ```go
-// cmd/picoclaw/internal/gateway/helpers.go
+// cmd/metaclaw/internal/gateway/helpers.go
 import (
-    _ "github.com/sipeed/picoclaw/pkg/channels/matrix"
+    _ "github.com/mingzhi1/metaclaw/pkg/channels/matrix"
 )
 ```
 

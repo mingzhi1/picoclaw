@@ -8,14 +8,14 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/agent/routing"
-	"github.com/sipeed/picoclaw/pkg/core/session"
-	"github.com/sipeed/picoclaw/pkg/infra/config"
-	"github.com/sipeed/picoclaw/pkg/infra/logger"
-	"github.com/sipeed/picoclaw/pkg/infra/store"
-	"github.com/sipeed/picoclaw/pkg/infra/vectorstore"
-	"github.com/sipeed/picoclaw/pkg/llm/providers"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/mingzhi1/metaclaw/pkg/agent/routing"
+	"github.com/mingzhi1/metaclaw/pkg/core/session"
+	"github.com/mingzhi1/metaclaw/pkg/infra/config"
+	"github.com/mingzhi1/metaclaw/pkg/infra/logger"
+	"github.com/mingzhi1/metaclaw/pkg/infra/store"
+	"github.com/mingzhi1/metaclaw/pkg/infra/vectorstore"
+	"github.com/mingzhi1/metaclaw/pkg/llm/providers"
+	"github.com/mingzhi1/metaclaw/pkg/tools"
 )
 
 // AgentInstance represents a fully configured agent with its own workspace,

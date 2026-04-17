@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/infra/httpclient"
-	"github.com/sipeed/picoclaw/pkg/infra/logger"
+	"github.com/mingzhi1/metaclaw/pkg/infra/httpclient"
+	"github.com/mingzhi1/metaclaw/pkg/infra/logger"
 )
 
 // EmbeddingProvider calls an OpenAI-compatible /v1/embeddings endpoint.

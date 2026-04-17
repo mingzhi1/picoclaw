@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/llm/providers"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/mingzhi1/metaclaw/pkg/llm/providers"
+	"github.com/mingzhi1/metaclaw/pkg/tools"
 )
 
 // ---------------------------------------------------------------------------

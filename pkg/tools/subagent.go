@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/core/bus"
-	"github.com/sipeed/picoclaw/pkg/llm/providers"
+	"github.com/mingzhi1/metaclaw/pkg/core/bus"
+	"github.com/mingzhi1/metaclaw/pkg/llm/providers"
 )
 
 type SubagentTask struct {

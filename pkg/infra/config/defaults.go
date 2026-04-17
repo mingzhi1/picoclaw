@@ -12,15 +12,7 @@ import (
 
 // DefaultConfig returns the default configuration for PicoClaw.
 func DefaultConfig() *Config {
-	// Determine the base path for the workspace.
-	// Priority: $PICOCLAW_HOME > ~/.picoclaw
-	var homePath string
-	if picoclawHome := os.Getenv("PICOCLAW_HOME"); picoclawHome != "" {
-		homePath = picoclawHome
-	} else {
-		userHome, _ := os.UserHomeDir()
-		homePath = filepath.Join(userHome, ".picoclaw")
-	}
+	homePath := defaultHomePath()
 	workspacePath := filepath.Join(homePath, "workspace")
 
 	return &Config{
@@ -126,4 +118,29 @@ func DefaultConfig() *Config {
 			Interval: 30,
 		},
 	}
+}
+
+func defaultHomePath() string {
+	if metaclawHome := os.Getenv("METACLAW_HOME"); metaclawHome != "" {
+		return metaclawHome
+	}
+	if picoclawHome := os.Getenv("PICOCLAW_HOME"); picoclawHome != "" {
+		return picoclawHome
+	}
+
+	userHome, _ := os.UserHomeDir()
+	metaHome := filepath.Join(userHome, ".metaclaw")
+	legacyHome := filepath.Join(userHome, ".picoclaw")
+	if pathExists(metaHome) {
+		return metaHome
+	}
+	if pathExists(legacyHome) {
+		return legacyHome
+	}
+	return metaHome
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

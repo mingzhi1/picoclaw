@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/infra/logger"
-	"github.com/sipeed/picoclaw/pkg/llm/providers"
-	"github.com/sipeed/picoclaw/pkg/skills"
+	"github.com/mingzhi1/metaclaw/pkg/infra/logger"
+	"github.com/mingzhi1/metaclaw/pkg/llm/providers"
+	"github.com/mingzhi1/metaclaw/pkg/skills"
 )
 
 type ContextBuilder struct {
@@ -37,11 +37,26 @@ type ContextBuilder struct {
 }
 
 func getGlobalConfigDir() string {
+	if home := os.Getenv("METACLAW_HOME"); home != "" {
+		return home
+	}
+	if home := os.Getenv("PICOCLAW_HOME"); home != "" {
+		return home
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".picoclaw")
+	metaDir := filepath.Join(home, ".metaclaw")
+	legacyDir := filepath.Join(home, ".picoclaw")
+	if _, err := os.Stat(metaDir); err == nil {
+		return metaDir
+	}
+	if _, err := os.Stat(legacyDir); err == nil {
+		return legacyDir
+	}
+	return metaDir
 }
 
 func NewContextBuilder(workspace string) *ContextBuilder {
@@ -59,9 +74,9 @@ func NewContextBuilder(workspace string) *ContextBuilder {
 func (cb *ContextBuilder) getIdentity() string {
 	workspacePath, _ := filepath.Abs(filepath.Join(cb.workspace))
 
-	return fmt.Sprintf(`# picoclaw 🦞
+	return fmt.Sprintf(`# metaclaw 🦞
 
-You are picoclaw, a helpful AI assistant.
+You are MetaClaw, a helpful AI assistant.
 
 ## Workspace
 Your workspace is at: %s

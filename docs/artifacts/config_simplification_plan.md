@@ -55,7 +55,7 @@ $ picoclaw init
 ```
 
 实现要点:
-- 在 cmd/picoclaw/internal/ 下新增 init/command.go
+- 在 cmd/metaclaw/internal/ 下新增 init/command.go
 - 生成的 config.json 只包含用户选择的字段
 - 依赖 charmbracelet/huh 做终端交互
 
